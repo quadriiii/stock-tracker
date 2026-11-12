@@ -143,6 +143,17 @@
     </div>
   </div>
 
+  <!-- ==================== FULL BILL RETURN / REFUND MODAL ==================== -->
+  <div id="refundModal" class="hidden fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div class="bg-rose-900 text-white px-5 py-4 flex items-center justify-between">
+        <h3 class="text-base font-bold">Return Item &amp; Process Refund</h3>
+        <button onclick="closeRefundModal()" class="text-rose-200 hover:text-white bg-white/10 rounded-lg px-2.5 py-1 text-xs font-bold">Close &times;</button>
+      </div>
+      <div id="refundModalBody" class="p-5 space-y-4"></div>
+    </div>
+  </div>
+
   <!-- ==================== MAIN APP CONTAINER ==================== -->
   <div id="appWrapper" class="hidden min-h-screen flex flex-col">
     <!-- Top Navbar -->
@@ -274,6 +285,7 @@
     const STORAGE_KEY_SALES = 'garment_tracker_sales_v1';
     const STORAGE_KEY_STOCK = 'garment_tracker_stock_v1';
     const STORAGE_KEY_PURCHASES = 'garment_tracker_purchases_v1';
+    const STORAGE_KEY_PREORDERS = 'garment_tracker_preorders_v1';
     const STORAGE_KEY_STORE = 'garment_tracker_store_info_v2';
     const STORAGE_KEY_SCRIPT_URL = 'garment_tracker_gsheet_url_v1';
     const STORAGE_KEY_AUTH_USERS = 'garment_tracker_auth_users_v2';
@@ -309,6 +321,8 @@
     let stockConfig = safeParseJSON(STORAGE_KEY_STOCK, JSON.parse(JSON.stringify(INITIAL_STOCK)));
     let salesList = safeParseJSON(STORAGE_KEY_SALES, []);
     let stockPurchasesList = safeParseJSON(STORAGE_KEY_PURCHASES, []);
+    let preOrdersList = safeParseJSON(STORAGE_KEY_PREORDERS, []);
+    let isSubmittingSale = false;
     let authUsers = safeParseJSON(STORAGE_KEY_AUTH_USERS, JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS)));
     let currentSession = safeParseJSON(STORAGE_KEY_SESSION, null);
 
@@ -346,24 +360,30 @@
     function normalizeSalesList() {
       if (!Array.isArray(salesList)) salesList = [];
       salesList = salesList.map(s => {
-        const netAmt = Number(s.amount) || 0;
-        const paidAmt = (s.paidAmount !== undefined && s.paidAmount !== null)
+        const isRet = Boolean(s.isReturned);
+        const netAmt = isRet ? 0 : (Number(s.amount) || 0);
+        const paidAmt = isRet ? 0 : ((s.paidAmount !== undefined && s.paidAmount !== null)
           ? Number(s.paidAmount)
-          : (s.paymentMode === 'Due / Credit' ? 0 : netAmt);
-        const dueAmt = Math.max(0, netAmt - paidAmt);
+          : (s.paymentMode === 'Due / Credit' ? 0 : netAmt));
+        const dueAmt = isRet ? 0 : Math.max(0, netAmt - paidAmt);
         return {
           ...s,
           studentClass: s.studentClass || '',
           discount: Number(s.discount || 0),
           amount: netAmt,
           paidAmount: paidAmt,
-          dueAmount: dueAmt
+          dueAmount: dueAmt,
+          isReturned: isRet,
+          refundedAmount: Number(s.refundedAmount || 0),
+          returnDate: s.returnDate || '',
+          returnReason: s.returnReason || ''
         };
       });
     }
     normalizeSalesList();
 
     if (!Array.isArray(stockPurchasesList)) stockPurchasesList = [];
+    if (!Array.isArray(preOrdersList)) preOrdersList = [];
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -447,7 +467,7 @@
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -818,6 +838,7 @@
       localStorage.setItem(STORAGE_KEY_STOCK, JSON.stringify(stockConfig));
       localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(salesList));
       localStorage.setItem(STORAGE_KEY_PURCHASES, JSON.stringify(stockPurchasesList));
+      localStorage.setItem(STORAGE_KEY_PREORDERS, JSON.stringify(preOrdersList));
       localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
       localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
     }
@@ -838,6 +859,7 @@
             stockConfig: stockConfig,
             salesList: salesList,
             stockPurchasesList: stockPurchasesList,
+            preOrdersList: preOrdersList,
             storeConfig: storeConfig,
             authUsers: authUsers,
             updatedAt: new Date().toISOString()
@@ -848,7 +870,7 @@
         console.error('Save sync error:', err);
         updateSyncBadge('error', 'Offline / Sync Failed');
       } finally {
-        setTimeout(() => { isSavingToCloud = false; }, 1500);
+        setTimeout(() => { isSavingToCloud = false; }, 6000);
       }
     }
 
@@ -901,9 +923,26 @@
             }
           }
 
+          if (Array.isArray(data.preOrdersList)) {
+            if (JSON.stringify(data.preOrdersList) !== JSON.stringify(preOrdersList)) {
+              preOrdersList = data.preOrdersList;
+              changed = true;
+            }
+          }
+
           if (data.storeConfig && data.storeConfig.storeName) {
-            if (JSON.stringify(data.storeConfig) !== JSON.stringify(storeConfig)) {
-              storeConfig = data.storeConfig;
+            const recentlyEditedMedia = (Date.now() - lastLocalMediaChangeTime) < 40000;
+            const mergedStore = { ...data.storeConfig };
+            if (recentlyEditedMedia) {
+              mergedStore.qrDataUrl = storeConfig.qrDataUrl;
+              mergedStore.logoDataUrl = storeConfig.logoDataUrl;
+            } else {
+              // If cloud has empty QR/Logo due to older payload, keep local non-empty QR/Logo if present
+              if (!mergedStore.qrDataUrl && storeConfig.qrDataUrl) mergedStore.qrDataUrl = storeConfig.qrDataUrl;
+              if (!mergedStore.logoDataUrl && storeConfig.logoDataUrl) mergedStore.logoDataUrl = storeConfig.logoDataUrl;
+            }
+            if (JSON.stringify(mergedStore) !== JSON.stringify(storeConfig)) {
+              storeConfig = mergedStore;
               changed = true;
             }
           }
@@ -990,8 +1029,9 @@
       let totalAvailable = 0;
       let totalRemainingValue = 0;
 
+      const activeCatSales = catSales.filter(s => !s.isReturned);
       const rows = items.map((item, index) => {
-        const soldQty = catSales
+        const soldQty = activeCatSales
           .filter(s => String(s.size).trim().toLowerCase() === String(item.size).trim().toLowerCase())
           .reduce((sum, s) => sum + Number(s.pieces), 0);
         const available = Number(item.opening) - soldQty;
@@ -1013,10 +1053,10 @@
         };
       });
 
-      const totalSalesAmount = catSales.reduce((sum, s) => sum + Number(s.amount), 0);
-      const totalPaidAmount = catSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
-      const totalDueAmount = catSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
-      const totalDiscountGiven = catSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
+      const totalSalesAmount = activeCatSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const totalPaidAmount = activeCatSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
+      const totalDueAmount = activeCatSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
+      const totalDiscountGiven = activeCatSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
 
       return {
         rows,
@@ -1127,7 +1167,8 @@
       const navBar = document.getElementById('navTabsBar');
       if (!navBar) return;
 
-      const pendingCount = salesList.filter(s => Number(s.dueAmount) > 0).length;
+      const pendingCount = salesList.filter(s => !s.isReturned && Number(s.dueAmount) > 0).length;
+      const pendingPreOrdersCount = preOrdersList.filter(p => p.status !== 'Delivered').length;
 
       const fixedLeftTabs = [
         { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800' }
@@ -1144,8 +1185,9 @@
       }).join('');
 
       const fixedRightTabs = [
+        { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600' },
         { id: 'StockInward', label: '+ Stock Purchase' },
-        { id: 'PendingDues', label: 'Pending Dues', count: pendingCount },
+        { id: 'PendingDues', label: 'Pending Dues', count: pendingCount, badgeColor: 'bg-rose-600' },
         { id: 'DailyClosing', label: 'Daily Closing' },
         { id: 'AddProduct', label: '+ Products' },
         { id: 'Summary', label: 'All Sales & Summary' },
@@ -1171,7 +1213,7 @@
         return `
           <button onclick="switchTab('${t.id}')" class="py-3 px-3 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
             <span>${t.label}</span>
-            ${t.count > 0 ? `<span class="bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">${t.count}</span>` : ''}
+            ${t.count > 0 ? `<span class="${t.badgeColor || 'bg-rose-600'} text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">${t.count}</span>` : ''}
             ${t.dot ? `<span id="setupTabDot" class="w-2 h-2 rounded-full ${googleScriptUrl ? 'bg-emerald-500' : 'bg-amber-500'}"></span>` : ''}
           </button>
         `;
@@ -1240,6 +1282,11 @@
 
       if (currentTab === 'QuickPOS') {
         renderQuickPOSTab(container);
+        return;
+      }
+
+      if (currentTab === 'PreOrders') {
+        renderPreOrdersTab(container);
         return;
       }
 
@@ -1340,6 +1387,15 @@
                   </tfoot>
                 </table>
               </div>
+            </div>
+
+            <!-- Class-Wise Distribution Summary Table (#3) -->
+            <div>
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                <h2 class="text-lg font-bold text-slate-800">Class-Wise Uniform Distribution Report</h2>
+                <span class="text-xs text-slate-500">Har class ke total students billed, pieces distributed aur net collection</span>
+              </div>
+              ${renderClassWiseSummaryTable()}
             </div>
 
             <div>
@@ -2106,8 +2162,25 @@
       if (dueSpan) dueSpan.textContent = formatINR(dueVal);
     }
 
+    function checkRecentDuplicateSale(studentName, studentClass, checkItems) {
+      const now = Date.now();
+      const twoMinutesMs = 2 * 60 * 1000;
+      const normName = studentName.trim().toLowerCase();
+      const normClass = String(studentClass || '').trim().toLowerCase();
+
+      return salesList.some(s => {
+        if (s.isReturned) return false;
+        const saleTs = Number(String(s.id).split('_')[0]) || 0;
+        if (now - saleTs > twoMinutesMs) return false;
+        if (String(s.soldTo || '').trim().toLowerCase() !== normName) return false;
+        if (String(s.studentClass || '').trim().toLowerCase() !== normClass) return false;
+        return checkItems.some(ci => ci.category === s.category && String(ci.size) === String(s.size));
+      });
+    }
+
     function completePosCheckout(e) {
       e.preventDefault();
+      if (isSubmittingSale) return;
       if (!posCartItems.length) {
         alert('Pehle cart mein kam se kam 1 item add karein!');
         return;
@@ -2115,6 +2188,16 @@
 
       const date = document.getElementById('posDate').value;
       const soldTo = document.getElementById('posSoldTo').value.trim();
+      const dupClass = document.getElementById('posStudentClass').value;
+
+      if (checkRecentDuplicateSale(soldTo, dupClass, posCartItems)) {
+        if (!confirm(`Warning: "${soldTo}" ka bilkul aisa hi bill pichhle 2 minute mein ban chuka hai! Kya aap phir bhi naya bill banana chahte hain?`)) {
+          return;
+        }
+      }
+
+      isSubmittingSale = true;
+      setTimeout(() => { isSubmittingSale = false; }, 2000);
       const studentClass = document.getElementById('posStudentClass').value;
       const customerPhone = document.getElementById('posCustomerPhone').value.trim();
       const customerMeta = document.getElementById('posCustomerMeta').value.trim();
@@ -2815,15 +2898,20 @@
 
       const adminCanDelete = isAdminUser();
 
+      const activeOnly = records.filter(r => !r.isReturned);
+      const totalPcsActive = activeOnly.reduce((s, r) => s + Number(r.pieces), 0);
+
       const rows = records.slice().reverse().map(r => {
         const disc = Number(r.discount || 0);
         const due = Number(r.dueAmount || 0);
+        const isRet = Boolean(r.isReturned);
         return `
-        <tr class="hover:bg-slate-50">
+        <tr class="${isRet ? 'bg-rose-50/50 text-slate-400 line-through' : 'hover:bg-slate-50'}">
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
-          <td class="px-3 py-2.5 font-medium text-slate-900">
+          <td class="px-3 py-2.5 font-medium ${isRet ? 'text-slate-500' : 'text-slate-900'}">
             ${escapeHTML(r.soldTo)}
-            ${r.studentClass ? `<span class="ml-1 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(r.studentClass)}</span>` : ''}
+            ${r.studentClass ? `<span class="ml-1 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded no-underline">${escapeHTML(r.studentClass)}</span>` : ''}
+            ${isRet ? `<span class="ml-1 inline-block bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded no-underline">RETURNED (Refunded ₹${r.refundedAmount || 0})</span>` : ''}
             ${r.customerPhone ? `<div class="text-[11px] text-blue-700">${escapeHTML(r.customerPhone)}</div>` : ''}
             ${r.customerMeta ? `<div class="text-[11px] text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
           </td>
@@ -2838,13 +2926,18 @@
           <td class="px-3 py-2.5 text-center text-xs font-medium text-slate-700">${escapeHTML(r.paymentMode || 'Cash')}</td>
           <td class="px-3 py-2.5 text-slate-700 text-xs">${escapeHTML(r.soldBy || '-')}</td>
           <td class="px-3 py-2.5 text-slate-700 text-xs">${escapeHTML(r.inHandOf || '-')}</td>
-          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1.5">
-            <button onclick="openReceiptForSale('${r.id}')" class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded font-semibold">
-              Receipt
-            </button>
-            <button onclick="openExchangeModal('${r.id}')" class="text-xs bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded font-semibold">
-              Exchange
-            </button>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1 no-underline">
+            ${!isRet ? `
+              <button onclick="openReceiptForSale('${r.id}')" class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded font-semibold">
+                Receipt
+              </button>
+              <button onclick="openExchangeModal('${r.id}')" class="text-xs bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded font-semibold">
+                Exchange
+              </button>
+              <button onclick="openRefundModal('${r.id}')" class="text-xs bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-300 px-2 py-1 rounded font-semibold">
+                Return
+              </button>
+            ` : `<span class="text-[11px] text-rose-600 font-bold">Restocked</span>`}
             ${adminCanDelete ? `
               <button onclick="deleteSaleEntry('${r.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold px-1">
                 Delete
@@ -2881,7 +2974,7 @@
             <tfoot class="bg-slate-200 font-bold text-slate-900">
               <tr>
                 <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total (${records.length} Bills)</td>
-                <td class="px-3 py-3 text-center">${totalPcs}</td>
+                <td class="px-3 py-3 text-center">${totalPcsActive}</td>
                 <td></td>
                 <td class="px-3 py-3 text-center text-rose-700">-${formatINR(totalDisc)}</td>
                 <td class="px-3 py-3 text-right">${formatINR(totalAmt)}</td>
@@ -3022,6 +3115,26 @@ function doPost(e) {
             <pre id="appsScriptCodeBox" class="bg-slate-900 text-emerald-300 p-4 rounded-lg text-xs overflow-x-auto leading-relaxed">${escapeHTML(appsScriptCode)}</pre>
           </div>
 
+          <!-- Full Database JSON Backup & Restore (#4) -->
+          <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-5 space-y-3 shadow-sm">
+            <div>
+              <h3 class="text-sm font-bold text-blue-950">Full Database Backup &amp; Restore (.JSON Safety Net)</h3>
+              <p class="text-xs text-blue-900 mt-0.5">
+                Poora data (Stock, Sales, Dues, Pre-Orders, Users aur QR Code) ek JSON file mein download karke safe rakhein, ya purani backup file se restore karein.
+              </p>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+              <button type="button" onclick="downloadFullBackupJSON()"
+                class="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow transition">
+                Download Full Backup (.json)
+              </button>
+              <label class="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold text-xs px-4 py-2.5 rounded-lg shadow-xs cursor-pointer text-center">
+                <span>Restore from Backup (.json)</span>
+                <input type="file" accept=".json,application/json" onchange="handleRestoreBackupJSON(event)" class="hidden" />
+              </label>
+            </div>
+          </div>
+
           <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h4 class="text-sm font-bold text-rose-900">Danger Zone: Reset All Data</h4>
@@ -3093,6 +3206,8 @@ function doPost(e) {
     }
 
     // ==================== A4 PDF RECEIPT + LOGO + UPI QR + WHATSAPP PDF SHARE ====================
+    let lastLocalMediaChangeTime = 0;
+
     function handleReceiptImageUpload(event, targetKey) {
       const file = event.target.files[0];
       if (!file) return;
@@ -3102,7 +3217,7 @@ function doPost(e) {
         const img = new Image();
         img.onload = function() {
           const canvas = document.createElement('canvas');
-          const maxDim = targetKey === 'logoDataUrl' ? 180 : 200;
+          const maxDim = targetKey === 'logoDataUrl' ? 140 : 170;
           let w = img.width;
           let h = img.height;
           if (w > h && w > maxDim) {
@@ -3115,12 +3230,22 @@ function doPost(e) {
           canvas.width = w;
           canvas.height = h;
           const ctx = canvas.getContext('2d');
+          // Fill white background before JPEG compression (prevents transparent PNG turning black)
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
           ctx.drawImage(img, 0, 0, w, h);
-          const compressedDataUrl = canvas.toDataURL('image/png', 0.85);
 
+          // Use compact JPEG so Google Sheets A1 cell (50,000 char limit) NEVER rejects the payload!
+          let compressedDataUrl = canvas.toDataURL('image/jpeg', 0.72);
+          if (compressedDataUrl.length > 22000) {
+            compressedDataUrl = canvas.toDataURL('image/jpeg', 0.45);
+          }
+
+          lastLocalMediaChangeTime = Date.now();
           storeConfig[targetKey] = compressedDataUrl;
           saveDataAndSync();
           renderContent();
+          alert('Image saved & synced! Ab ye permanent rahega.');
         };
         img.src = e.target.result;
       };
@@ -3128,6 +3253,7 @@ function doPost(e) {
     }
 
     function removeReceiptImage(targetKey) {
+      lastLocalMediaChangeTime = Date.now();
       storeConfig[targetKey] = '';
       saveDataAndSync();
       renderContent();
@@ -3699,12 +3825,22 @@ function doPost(e) {
 
     function addSaleEntry(e, category) {
       e.preventDefault();
+      if (isSubmittingSale) return;
       const date = document.getElementById('saleDate').value;
       const soldTo = document.getElementById('saleSoldTo').value.trim();
       const studentClass = document.getElementById('saleStudentClass').value;
       const customerPhone = document.getElementById('saleCustomerPhone').value.trim();
       const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
       const size = String(document.getElementById('saleSize').value);
+
+      if (checkRecentDuplicateSale(soldTo, studentClass, [{ category, size }])) {
+        if (!confirm(`Warning: "${soldTo}" ka ${category} (Size ${size}) ka bill abhi pichhle 2 minute mein bana hai! Kya aap phir bhi dobara entry karna chahte hain?`)) {
+          return;
+        }
+      }
+
+      isSubmittingSale = true;
+      setTimeout(() => { isSubmittingSale = false; }, 2000);
       const pieces = Number(document.getElementById('salePieces').value);
       const rawDiscount = Math.max(0, Number(document.getElementById('saleDiscount').value) || 0);
       const paymentMode = document.getElementById('salePaymentMode').value;
