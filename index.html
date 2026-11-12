@@ -3726,7 +3726,7 @@ RozFs3BK8cOxf0Vrn+9CffuYaYBmP/nYkvGyYdP8hD5vx7bi9Ba1G8AozJRh/RyMzeBcBw1o7BBrdjWb
         <tr class="${isRet ? 'bg-rose-50/50 text-slate-400 line-through' : 'hover:bg-slate-50'}">
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
           <td class="px-3 py-2.5 font-medium ${isRet ? 'text-slate-500' : 'text-slate-900'}">
-            <button type="button" onclick="openStudentHistoryModal('${escapeHTML(r.soldTo).replace(/'/g, "\'")}', '${escapeHTML(r.studentClass || '').replace(/'/g, "\'")}')"
+            <button type="button" data-student-name="${escapeHTML(r.soldTo)}" data-student-class="${escapeHTML(r.studentClass || '')}" onclick="openStudentHistoryModal(this.dataset.studentName, this.dataset.studentClass)"
               class="text-left font-bold text-blue-950 hover:text-blue-700 hover:underline" title="Click to view full student history">
               ${escapeHTML(r.soldTo)}
             </button>
