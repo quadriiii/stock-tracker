@@ -328,6 +328,9 @@
     const STORAGE_KEY_STOCK = 'garment_tracker_stock_v1';
     const STORAGE_KEY_PURCHASES = 'garment_tracker_purchases_v1';
     const STORAGE_KEY_PREORDERS = 'garment_tracker_preorders_v1';
+    const STORAGE_KEY_COMBOS = 'garment_tracker_class_combos_v1';
+    const STORAGE_KEY_EXPENSES = 'garment_tracker_daily_expenses_v1';
+    const STORAGE_KEY_SUPPLIER_PAYMENTS = 'garment_tracker_supplier_payments_v1';
     const STORAGE_KEY_AUDIT = 'garment_tracker_audit_v1';
     const STORAGE_KEY_STORE = 'garment_tracker_store_info_v2';
     const STORAGE_KEY_SCRIPT_URL = 'garment_tracker_gsheet_url_v1';
@@ -365,6 +368,11 @@
     let salesList = safeParseJSON(STORAGE_KEY_SALES, []);
     let stockPurchasesList = safeParseJSON(STORAGE_KEY_PURCHASES, []);
     let preOrdersList = safeParseJSON(STORAGE_KEY_PREORDERS, []);
+    let classCombosList = safeParseJSON(STORAGE_KEY_COMBOS, []);
+    let dailyExpensesList = safeParseJSON(STORAGE_KEY_EXPENSES, []);
+    let supplierPaymentsList = safeParseJSON(STORAGE_KEY_SUPPLIER_PAYMENTS, []);
+    let isNavMenuOpen = false;
+    let comboDraftItems = [];
     let activityLogsList = safeParseJSON(STORAGE_KEY_AUDIT, []);
     let isSubmittingSale = false;
     let authUsers = safeParseJSON(STORAGE_KEY_AUTH_USERS, JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS)));
@@ -428,6 +436,9 @@
 
     if (!Array.isArray(stockPurchasesList)) stockPurchasesList = [];
     if (!Array.isArray(preOrdersList)) preOrdersList = [];
+    if (!Array.isArray(classCombosList)) classCombosList = [];
+    if (!Array.isArray(dailyExpensesList)) dailyExpensesList = [];
+    if (!Array.isArray(supplierPaymentsList)) supplierPaymentsList = [];
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -910,6 +921,9 @@
       localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(salesList));
       localStorage.setItem(STORAGE_KEY_PURCHASES, JSON.stringify(stockPurchasesList));
       localStorage.setItem(STORAGE_KEY_PREORDERS, JSON.stringify(preOrdersList));
+      localStorage.setItem(STORAGE_KEY_COMBOS, JSON.stringify(classCombosList));
+      localStorage.setItem(STORAGE_KEY_EXPENSES, JSON.stringify(dailyExpensesList));
+      localStorage.setItem(STORAGE_KEY_SUPPLIER_PAYMENTS, JSON.stringify(supplierPaymentsList));
       localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(activityLogsList));
       localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
       localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
@@ -932,6 +946,9 @@
             salesList: salesList,
             stockPurchasesList: stockPurchasesList,
             preOrdersList: preOrdersList,
+            classCombosList: classCombosList,
+            dailyExpensesList: dailyExpensesList,
+            supplierPaymentsList: supplierPaymentsList,
             activityLogsList: activityLogsList,
             storeConfig: storeConfig,
             authUsers: authUsers,
@@ -999,6 +1016,27 @@
           if (Array.isArray(data.preOrdersList)) {
             if (JSON.stringify(data.preOrdersList) !== JSON.stringify(preOrdersList)) {
               preOrdersList = data.preOrdersList;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.classCombosList)) {
+            if (JSON.stringify(data.classCombosList) !== JSON.stringify(classCombosList)) {
+              classCombosList = data.classCombosList;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.dailyExpensesList)) {
+            if (JSON.stringify(data.dailyExpensesList) !== JSON.stringify(dailyExpensesList)) {
+              dailyExpensesList = data.dailyExpensesList;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.supplierPaymentsList)) {
+            if (JSON.stringify(data.supplierPaymentsList) !== JSON.stringify(supplierPaymentsList)) {
+              supplierPaymentsList = data.supplierPaymentsList;
               changed = true;
             }
           }
@@ -1243,6 +1281,11 @@
       document.getElementById('summaryCards').innerHTML = cardsHTML;
     }
 
+    function toggleNavMenu() {
+      isNavMenuOpen = !isNavMenuOpen;
+      renderNavigationTabs();
+    }
+
     function renderNavigationTabs() {
       const navBar = document.getElementById('navTabsBar');
       if (!navBar) return;
@@ -1250,56 +1293,77 @@
       const pendingCount = salesList.filter(s => !s.isReturned && Number(s.dueAmount) > 0).length;
       const pendingPreOrdersCount = preOrdersList.filter(p => p.status !== 'Delivered').length;
 
-      const fixedLeftTabs = [
-        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800' }
+      const allNavItems = [
+        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800', group: 'Billing' }
       ];
 
-      const categories = Object.keys(stockConfig);
-      const catButtons = categories.map(cat => {
-        const isActive = currentTab === cat;
-        return `
-          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3 px-3 text-xs sm:text-sm transition ${isActive ? 'tab-active' : 'tab-inactive'}">
-            ${escapeHTML(cat)}
-          </button>
-        `;
-      }).join('');
+      Object.keys(stockConfig).forEach(cat => {
+        allNavItems.push({ id: cat, label: cat + ' Stock & Billing', group: 'Product Stock' });
+      });
 
-      const fixedRightTabs = [
-        { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600' },
-        { id: 'StockInward', label: '+ Stock Purchase' },
-        { id: 'PendingDues', label: 'Pending Dues', count: pendingCount, badgeColor: 'bg-rose-600' },
-        { id: 'DailyClosing', label: 'Daily Closing' },
-        { id: 'AddProduct', label: '+ Products' },
-        { id: 'Summary', label: 'All Sales & Summary' },
-        { id: 'Receipt', label: 'A4 Receipt & PDF' }
-      ];
+      allNavItems.push(
+        { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600', group: 'Operations' },
+        { id: 'StockInward', label: '+ Stock Purchase & Supplier Khata', group: 'Operations' },
+        { id: 'PendingDues', label: 'Pending Dues (Udhaar)', count: pendingCount, badgeColor: 'bg-rose-600', group: 'Operations' },
+        { id: 'DailyClosing', label: 'Daily Closing & Expenses', group: 'Reports' },
+        { id: 'AddProduct', label: '+ Add / Manage Products', group: 'Catalog' },
+        { id: 'Summary', label: 'All Sales & Summary', group: 'Reports' },
+        { id: 'Receipt', label: 'A4 Receipt & PDF', group: 'Billing' }
+      );
 
       if (isAdminUser()) {
-        fixedRightTabs.push({ id: 'SyncSetup', label: 'Settings', dot: true });
+        allNavItems.push({ id: 'SyncSetup', label: 'Settings & Class Combos', dot: true, group: 'Admin' });
       }
 
-      const leftHTML = fixedLeftTabs.map(t => {
-        const isActive = currentTab === t.id;
+      const activeObj = allNavItems.find(item => item.id === currentTab) || allNavItems[0];
+
+      const menuListHTML = allNavItems.map((item, idx) => {
+        const isActive = currentTab === item.id;
         return `
-          <button onclick="switchTab('${t.id}')" class="py-3 px-3 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'}">
-            <span>${t.label}</span>
-            ${t.badge ? `<span class="${t.badgeColor} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${t.badge}</span>` : ''}
+          <button type="button" onclick="isNavMenuOpen = false; switchTab('${escapeHTML(item.id)}')"
+            class="w-full flex items-center justify-between px-4 py-3 text-left text-xs sm:text-sm rounded-xl transition ${isActive ? 'bg-blue-900 text-white font-bold shadow-sm' : 'bg-white hover:bg-blue-50 text-slate-800 font-semibold border border-slate-200/80'}">
+            <div class="flex items-center gap-2.5">
+              <span class="w-5 h-5 rounded-full text-[10px] font-extrabold flex items-center justify-center ${isActive ? 'bg-amber-400 text-slate-950' : 'bg-slate-100 text-slate-600'}">${idx + 1}</span>
+              <span>${escapeHTML(item.label)}</span>
+              ${item.badge ? `<span class="${isActive ? 'bg-white/20 text-white' : item.badgeColor} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${item.badge}</span>` : ''}
+            </div>
+            <div class="flex items-center gap-2">
+              ${item.count > 0 ? `<span class="${item.badgeColor || 'bg-rose-600'} text-white text-[10px] font-bold px-2 py-0.5 rounded-full">${item.count}</span>` : ''}
+              ${item.dot ? `<span class="w-2.5 h-2.5 rounded-full ${googleScriptUrl ? 'bg-emerald-400' : 'bg-amber-400'}"></span>` : ''}
+              <span class="text-xs ${isActive ? 'text-amber-300' : 'text-slate-400'}">&rsaquo;</span>
+            </div>
           </button>
         `;
       }).join('');
 
-      const rightHTML = fixedRightTabs.map(t => {
-        const isActive = currentTab === t.id;
-        return `
-          <button onclick="switchTab('${t.id}')" class="py-3 px-3 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
-            <span>${t.label}</span>
-            ${t.count > 0 ? `<span class="${t.badgeColor || 'bg-rose-600'} text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">${t.count}</span>` : ''}
-            ${t.dot ? `<span id="setupTabDot" class="w-2 h-2 rounded-full ${googleScriptUrl ? 'bg-emerald-500' : 'bg-amber-500'}"></span>` : ''}
+      navBar.className = 'border-b border-slate-200 bg-slate-50 px-3 sm:px-5 py-3';
+      navBar.innerHTML = `
+        <div class="flex items-center justify-between gap-3">
+          <button type="button" onclick="toggleNavMenu()"
+            class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white px-4 py-2.5 rounded-xl shadow-sm transition cursor-pointer">
+            <span class="flex flex-col justify-between w-5 h-3.5" aria-hidden="true">
+              <span class="block h-0.5 w-full bg-white rounded transition-transform ${isNavMenuOpen ? 'translate-y-1.5 rotate-45' : ''}"></span>
+              <span class="block h-0.5 w-full bg-amber-400 rounded transition-opacity ${isNavMenuOpen ? 'opacity-0' : ''}"></span>
+              <span class="block h-0.5 w-full bg-white rounded transition-transform ${isNavMenuOpen ? '-translate-y-1.5 -rotate-45' : ''}"></span>
+            </span>
+            <span class="text-xs sm:text-sm font-bold tracking-wide">${isNavMenuOpen ? 'Close Menu' : 'All Tabs Menu'}</span>
           </button>
-        `;
-      }).join('');
 
-      navBar.innerHTML = leftHTML + catButtons + rightHTML;
+          <div class="flex items-center gap-2 flex-wrap justify-end">
+            <span class="text-[11px] font-semibold text-slate-500 hidden sm:inline">Current Tab:</span>
+            <span class="inline-flex items-center gap-1.5 bg-blue-100 text-blue-950 border border-blue-200 text-xs sm:text-sm font-extrabold px-3 py-1.5 rounded-xl">
+              ${escapeHTML(activeObj.label)}
+              ${pendingCount > 0 ? `<span class="bg-rose-600 text-white text-[10px] px-1.5 py-0.5 rounded-full" title="Pending Dues">${pendingCount} Due</span>` : ''}
+            </span>
+          </div>
+        </div>
+
+        ${isNavMenuOpen ? `
+          <div class="mt-3 pt-3 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            ${menuListHTML}
+          </div>
+        ` : ''}
+      `;
     }
 
     function switchTab(tab) {
@@ -1307,6 +1371,7 @@
         alert('Sirf Admin hi Settings access kar sakta hai.');
         return;
       }
+      isNavMenuOpen = false;
       currentTab = tab;
       renderContent();
     }
@@ -1392,6 +1457,8 @@
 
       if (currentTab === 'SyncSetup') {
         renderSyncSetupTab(container);
+        updateComboBuilderSizes();
+        renderComboDraftPreview();
         return;
       }
 
@@ -1685,7 +1752,7 @@
       updateFormPreview(category);
     }
 
-    // ==================== STOCK PURCHASE / NEW STOCK INWARD LOG TAB ====================
+    // ==================== STOCK PURCHASE & SUPPLIER PARTY KHATA TAB (#6) ====================
     function renderStockInwardTab(container) {
       const categories = Object.keys(stockConfig);
       const catOptions = categories.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
@@ -1693,27 +1760,99 @@
 
       const totalPurchasedPcs = stockPurchasesList.reduce((s, p) => s + Number(p.pieces), 0);
 
-      const historyRowsHTML = stockPurchasesList.length ? stockPurchasesList.slice().reverse().map((p, idx) => `
+      // Compute Supplier Party Khata Summary
+      const supplierMap = {};
+      stockPurchasesList.forEach(p => {
+        const party = (p.supplier || 'General / Local Supplier').trim();
+        if (!supplierMap[party]) {
+          supplierMap[party] = { party, totalPcs: 0, totalBill: 0, totalPaid: 0 };
+        }
+        supplierMap[party].totalPcs += Number(p.pieces || 0);
+        supplierMap[party].totalBill += Number(p.billAmount || 0);
+        supplierMap[party].totalPaid += Number(p.paidAmount || 0);
+      });
+
+      supplierPaymentsList.forEach(sp => {
+        const party = (sp.supplier || 'General / Local Supplier').trim();
+        if (!supplierMap[party]) {
+          supplierMap[party] = { party, totalPcs: 0, totalBill: 0, totalPaid: 0 };
+        }
+        supplierMap[party].totalPaid += Number(sp.amount || 0);
+      });
+
+      const supplierSummaryList = Object.values(supplierMap);
+      const totalSupplierBilled = supplierSummaryList.reduce((s, x) => s + x.totalBill, 0);
+      const totalSupplierPaid = supplierSummaryList.reduce((s, x) => s + x.totalPaid, 0);
+      const totalSupplierDue = Math.max(0, totalSupplierBilled - totalSupplierPaid);
+
+      const supplierDatalistOpts = supplierSummaryList.map(s => `<option value="${escapeHTML(s.party)}">`).join('');
+
+      const supplierKhataRowsHTML = supplierSummaryList.length ? supplierSummaryList.map((s, idx) => {
+        const balDue = Math.max(0, s.totalBill - s.totalPaid);
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="px-3 py-2.5 text-center text-slate-500">${idx + 1}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(s.party)}</td>
+            <td class="px-3 py-2.5 text-center font-semibold text-blue-900">${s.totalPcs} Pcs</td>
+            <td class="px-3 py-2.5 text-right font-semibold">${formatINR(s.totalBill)}</td>
+            <td class="px-3 py-2.5 text-right font-semibold text-emerald-700">${formatINR(s.totalPaid)}</td>
+            <td class="px-3 py-2.5 text-right font-extrabold ${balDue > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatINR(balDue)}</td>
+            <td class="px-3 py-2.5 text-center">
+              <button type="button" onclick="prefillSupplierPayment('${escapeHTML(s.party)}', ${balDue})"
+                class="text-xs bg-blue-900 hover:bg-blue-800 text-white font-bold px-2.5 py-1 rounded-lg shadow-xs">
+                + Pay Party
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('') : `
+        <tr>
+          <td colspan="7" class="py-6 text-center text-xs text-slate-500">
+            Abhi tak koi Supplier Khata record nahi hai. Naya stock purchase add karte waqt Bill Amount aur Paid dalein.
+          </td>
+        </tr>
+      `;
+
+      const paymentHistoryRowsHTML = supplierPaymentsList.length ? supplierPaymentsList.slice().reverse().map((sp, idx) => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2 text-center text-slate-500">${supplierPaymentsList.length - idx}</td>
+          <td class="px-3 py-2 text-center whitespace-nowrap">${sp.date}</td>
+          <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(sp.supplier)}</td>
+          <td class="px-3 py-2 text-center text-xs">${escapeHTML(sp.paymentMode || 'Cash')}</td>
+          <td class="px-3 py-2 text-xs text-slate-600">${escapeHTML(sp.note || '-')}</td>
+          <td class="px-3 py-2 text-right font-bold text-emerald-700">${formatINR(sp.amount)}</td>
+          <td class="px-3 py-2 text-center">
+            ${adminCanDelete ? `<button type="button" onclick="deleteSupplierPayment('${sp.id}')" class="text-xs text-rose-600 font-bold">Delete</button>` : '-'}
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="7" class="py-4 text-center text-xs text-slate-500">Abhi koi alag se supplier payment entry nahi hai.</td></tr>`;
+
+      const historyRowsHTML = stockPurchasesList.length ? stockPurchasesList.slice().reverse().map((p, idx) => {
+        const bAmt = Number(p.billAmount || 0);
+        const pAmt = Number(p.paidAmount || 0);
+        const dAmt = Math.max(0, bAmt - pAmt);
+        return `
         <tr class="hover:bg-slate-50">
           <td class="px-3 py-2.5 text-center text-slate-500">${stockPurchasesList.length - idx}</td>
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${p.date}</td>
-          <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(p.category)}</td>
-          <td class="px-3 py-2.5 text-center font-bold">${escapeHTML(p.size)}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(p.category)} (Size ${escapeHTML(p.size)})</td>
           <td class="px-3 py-2.5 text-center font-extrabold text-emerald-700">+${p.pieces} Pcs</td>
-          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(p.supplier || '-')}</td>
-          <td class="px-3 py-2.5 text-slate-600 text-xs">${escapeHTML(p.billNote || '-')}</td>
-          <td class="px-3 py-2.5 text-slate-600 text-xs">${escapeHTML(p.addedBy || '-')}</td>
+          <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHTML(p.supplier || '-')}</td>
+          <td class="px-3 py-2.5 text-right font-semibold">${bAmt > 0 ? formatINR(bAmt) : '-'}</td>
+          <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">${pAmt > 0 ? formatINR(pAmt) : '-'}</td>
+          <td class="px-3 py-2.5 text-right font-bold ${dAmt > 0 ? 'text-rose-600' : 'text-slate-400'}">${dAmt > 0 ? formatINR(dAmt) : '₹0'}</td>
+          <td class="px-3 py-2.5 text-slate-600 text-xs">${escapeHTML(p.billNote || '-')} <span class="text-[10px] text-slate-400">(${escapeHTML(p.addedBy || '-')})</span></td>
           <td class="px-3 py-2.5 text-center">
             ${adminCanDelete ? `
               <button onclick="deleteStockPurchaseEntry('${p.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
-                Undo / Delete
+                Undo
               </button>
             ` : `<span class="text-[11px] text-slate-400">Logged</span>`}
           </td>
         </tr>
-      `).join('') : `
+      `}).join('') : `
         <tr>
-          <td colspan="9" class="py-8 text-center text-xs text-slate-500">
+          <td colspan="10" class="py-8 text-center text-xs text-slate-500">
             Abhi tak koi Stock Purchase entry record nahi hui hai. Upar form se naya maal (Stock Inward) add karein.
           </td>
         </tr>
@@ -1721,12 +1860,13 @@
 
       container.innerHTML = `
         <div class="space-y-8">
+          <!-- 1. Add Stock Purchase / Inward Form -->
           <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
               <div>
                 <h2 class="text-lg font-bold text-slate-900">+ Add Stock Purchase / Naya Maal Inward Entry</h2>
                 <p class="text-xs text-slate-600 mt-0.5">
-                  Jab factory ya supplier se naya maal aaye, yahan entry karein — stock automatic badh jayega aur poora record save rahega.
+                  Supplier se naya maal aane par quantity aur bill amount dalein — stock automatic badh jayega aur Supplier Khata update hoga.
                 </p>
               </div>
               <span class="text-xs font-bold bg-emerald-100 text-emerald-900 px-3 py-1 rounded-full self-start">
@@ -1734,7 +1874,7 @@
               </span>
             </div>
 
-            <form onsubmit="handleAddStockPurchase(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+            <form onsubmit="handleAddStockPurchase(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
                 <input type="date" id="inwardDate" value="${getTodayDate()}" required
@@ -1759,24 +1899,127 @@
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Supplier / Party Name</label>
-                <input type="text" id="inwardSupplier" placeholder="e.g. Ludhiana Knitwear"
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Supplier / Party Name *</label>
+                <input type="text" id="inwardSupplier" list="supplierPartyList" placeholder="e.g. Ludhiana Knitwear" required
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+                <datalist id="supplierPartyList">${supplierDatalistOpts}</datalist>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Purchase Bill Amount (₹)</label>
+                <input type="number" id="inwardBillAmount" min="0" value="0"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Paid to Supplier Now (₹)</label>
+                <input type="number" id="inwardPaidAmount" min="0" value="0"
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Challan / Bill No. / Note</label>
                 <input type="text" id="inwardNote" placeholder="e.g. Bill #402"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
               </div>
-              <div class="sm:col-span-2 lg:col-span-6 flex justify-end pt-2 border-t border-emerald-200/80">
+              <div class="sm:col-span-2 lg:col-span-4 flex justify-end pt-2 border-t border-emerald-200/80">
                 <button type="submit"
                   class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow transition">
-                  + Add Stock &amp; Save Inward Log
+                  + Add Stock &amp; Update Party Khata
                 </button>
               </div>
             </form>
           </div>
 
+          <!-- 2. Supplier / Wholesaler Party Khata (#6) -->
+          <div class="bg-blue-50/60 border border-blue-200 rounded-xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-base sm:text-lg font-bold text-blue-950">Supplier / Wholesaler Ledger (Party Khata)</h3>
+                <p class="text-xs text-blue-800">Har wholesaler ka total purchase bill, paid amount aur baaki udhaar (Supplier Due) hisaab</p>
+              </div>
+              <div class="flex flex-wrap gap-2 text-xs font-bold">
+                <span class="bg-white border border-blue-200 text-blue-950 px-3 py-1 rounded-lg">Total Billed: ${formatINR(totalSupplierBilled)}</span>
+                <span class="bg-emerald-100 text-emerald-900 px-3 py-1 rounded-lg">Paid: ${formatINR(totalSupplierPaid)}</span>
+                <span class="bg-rose-100 text-rose-900 px-3 py-1 rounded-lg">Party Due: ${formatINR(totalSupplierDue)}</span>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+              <table class="min-w-full text-sm">
+                <thead class="bg-blue-950 text-white text-xs">
+                  <tr>
+                    <th class="px-3 py-2.5 text-center">#</th>
+                    <th class="px-3 py-2.5 text-left">Supplier / Party Name</th>
+                    <th class="px-3 py-2.5 text-center">Total Pcs Supplied</th>
+                    <th class="px-3 py-2.5 text-right">Total Purchase Bill</th>
+                    <th class="px-3 py-2.5 text-right">Total Paid</th>
+                    <th class="px-3 py-2.5 text-right">Balance Due (Udhaar)</th>
+                    <th class="px-3 py-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">${supplierKhataRowsHTML}</tbody>
+              </table>
+            </div>
+
+            <!-- Record Standalone Supplier Payment -->
+            <form onsubmit="handleAddSupplierPayment(event)" class="bg-white border border-blue-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Date *</label>
+                <input type="date" id="spDateInput" value="${getTodayDate()}" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Supplier / Party Name *</label>
+                <input type="text" id="spPartyInput" list="supplierPartyList" placeholder="Select or type party" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Amount Paid (₹) *</label>
+                <input type="number" id="spAmountInput" min="1" placeholder="e.g. 5000" required
+                  class="w-full border border-emerald-400 rounded-lg px-3 py-2 text-xs sm:text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mode &amp; Reference</label>
+                <div class="flex gap-1.5">
+                  <select id="spModeInput" class="border border-slate-300 rounded-lg px-2 py-2 text-xs">
+                    <option value="Cash">Cash</option>
+                    <option value="UPI / Bank">UPI / Bank</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                  <input type="text" id="spNoteInput" placeholder="UTR / Note"
+                    class="w-full border border-slate-300 rounded-lg px-2.5 py-2 text-xs" />
+                </div>
+              </div>
+              <div>
+                <button type="submit"
+                  class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs sm:text-sm py-2.5 px-3 rounded-lg shadow transition">
+                  + Record Party Payment
+                </button>
+              </div>
+            </form>
+
+            ${supplierPaymentsList.length > 0 ? `
+            <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+              <div class="bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700 border-b border-slate-200">
+                Supplier Payment History (${supplierPaymentsList.length} Payments)
+              </div>
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-2 text-center">#</th>
+                    <th class="px-3 py-2 text-center">Date</th>
+                    <th class="px-3 py-2 text-left">Supplier</th>
+                    <th class="px-3 py-2 text-center">Mode</th>
+                    <th class="px-3 py-2 text-left">Reference / Note</th>
+                    <th class="px-3 py-2 text-right">Paid Amount</th>
+                    <th class="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">${paymentHistoryRowsHTML}</tbody>
+              </table>
+            </div>
+            ` : ''}
+          </div>
+
+          <!-- 3. Stock Purchase Inward Log Table -->
           <div>
             <h3 class="text-lg font-bold text-slate-800 mb-3">Stock Purchase / Inward History (${stockPurchasesList.length} Entries)</h3>
             <div class="overflow-x-auto border border-slate-200 rounded-lg">
@@ -1785,12 +2028,13 @@
                   <tr>
                     <th class="px-3 py-3 text-center font-semibold">#</th>
                     <th class="px-3 py-3 text-center font-semibold">Date</th>
-                    <th class="px-3 py-3 text-left font-semibold">Product</th>
-                    <th class="px-3 py-3 text-center font-semibold">Size</th>
+                    <th class="px-3 py-3 text-left font-semibold">Product &amp; Size</th>
                     <th class="px-3 py-3 text-center font-semibold">Added Qty</th>
                     <th class="px-3 py-3 text-left font-semibold">Supplier</th>
-                    <th class="px-3 py-3 text-left font-semibold">Challan / Note</th>
-                    <th class="px-3 py-3 text-left font-semibold">Added By</th>
+                    <th class="px-3 py-3 text-right font-semibold">Bill Amt</th>
+                    <th class="px-3 py-3 text-right font-semibold">Paid</th>
+                    <th class="px-3 py-3 text-right font-semibold">Due</th>
+                    <th class="px-3 py-3 text-left font-semibold">Challan / By</th>
                     <th class="px-3 py-3 text-center font-semibold">Action</th>
                   </tr>
                 </thead>
@@ -1824,7 +2068,9 @@
       const category = document.getElementById('inwardCategory').value;
       const size = String(document.getElementById('inwardSize').value);
       const pieces = Math.max(1, Number(document.getElementById('inwardPieces').value) || 0);
-      const supplier = document.getElementById('inwardSupplier').value.trim();
+      const supplier = document.getElementById('inwardSupplier').value.trim() || 'General / Local Supplier';
+      const billAmount = Math.max(0, Number(document.getElementById('inwardBillAmount').value) || 0);
+      const paidAmount = Math.max(0, Number(document.getElementById('inwardPaidAmount').value) || 0);
       const billNote = document.getElementById('inwardNote').value.trim();
       const addedBy = currentSession ? currentSession.displayName : 'Admin';
 
@@ -1843,13 +2089,62 @@
         size,
         pieces,
         supplier,
+        billAmount,
+        paidAmount,
         billNote,
         addedBy
       });
 
+      logStaffActivity('Stock Inward', `+${pieces} Pcs ${category} (Size ${size}) from ${supplier}, Bill ₹${billAmount}`);
       saveDataAndSync();
       renderContent();
-      alert(`+${pieces} Pcs (${category} - Size ${size}) stock mein jud gaya hai aur log save ho gaya!`);
+      alert(`+${pieces} Pcs (${category} - Size ${size}) stock mein jud gaya hai aur Supplier Khata update ho gaya!`);
+    }
+
+    function prefillSupplierPayment(partyName, dueAmt) {
+      const partyEl = document.getElementById('spPartyInput');
+      const amtEl = document.getElementById('spAmountInput');
+      if (partyEl) {
+        partyEl.value = partyName;
+        partyEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (amtEl && dueAmt > 0) {
+        amtEl.value = dueAmt;
+      }
+    }
+
+    function handleAddSupplierPayment(e) {
+      e.preventDefault();
+      const date = document.getElementById('spDateInput').value;
+      const supplier = document.getElementById('spPartyInput').value.trim();
+      const amount = Math.max(1, Number(document.getElementById('spAmountInput').value) || 0);
+      const paymentMode = document.getElementById('spModeInput').value;
+      const note = document.getElementById('spNoteInput').value.trim();
+
+      if (!supplier || amount <= 0) return;
+
+      supplierPaymentsList.push({
+        id: 'SP-' + Date.now(),
+        date,
+        supplier,
+        amount,
+        paymentMode,
+        note,
+        paidBy: currentSession ? currentSession.displayName : 'Admin'
+      });
+
+      logStaffActivity('Supplier Payment', `Paid ₹${amount} to ${supplier} (${paymentMode})`);
+      saveDataAndSync();
+      renderContent();
+      alert(`${supplier} ko ₹${amount} ka payment record ho gaya hai!`);
+    }
+
+    function deleteSupplierPayment(spId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is supplier payment entry ko delete karna chahte hain?')) return;
+      supplierPaymentsList = supplierPaymentsList.filter(x => x.id !== spId);
+      saveDataAndSync();
+      renderContent();
     }
 
     function deleteStockPurchaseEntry(purId) {
@@ -1907,6 +2202,32 @@
       container.innerHTML = `
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-7 space-y-5">
+            ${classCombosList.length > 0 ? `
+            <div class="bg-indigo-50/80 border border-indigo-200 rounded-xl p-4 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <h3 class="text-xs sm:text-sm font-bold text-indigo-950 uppercase tracking-wide">1-Click Class Uniform Combo / Set Loader</h3>
+                <span class="text-[11px] font-bold bg-indigo-200/80 text-indigo-950 px-2 py-0.5 rounded-full">FAST COMBO</span>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                <div class="sm:col-span-8">
+                  <label class="block text-[11px] font-semibold text-slate-700 mb-1">Select Saved Class Combo / Uniform Set</label>
+                  <select id="posComboSelect" class="w-full bg-white border border-indigo-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold focus:outline-none focus:border-indigo-700">
+                    ${classCombosList.map(cb => {
+                      const desc = (cb.items || []).map(it => `${it.category} (Size ${it.size}) x${it.pieces}`).join(', ');
+                      return `<option value="${escapeHTML(cb.id)}">${escapeHTML(cb.comboName)}${cb.studentClass ? ` [${escapeHTML(cb.studentClass)}]` : ''} — ${escapeHTML(desc)}</option>`;
+                    }).join('')}
+                  </select>
+                </div>
+                <div class="sm:col-span-4">
+                  <button type="button" onclick="applySelectedClassComboToCart()"
+                    class="w-full bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm py-2 px-3 rounded-lg shadow transition">
+                    + Load Full Combo
+                  </button>
+                </div>
+              </div>
+            </div>
+            ` : ''}
+
             <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
                 <h2 class="text-base font-bold text-blue-950">Step 1: Add Items to Student / Customer Bill</h2>
@@ -2712,6 +3033,9 @@
         salesList,
         stockPurchasesList,
         preOrdersList,
+        classCombosList,
+        dailyExpensesList,
+        supplierPaymentsList,
         storeConfig,
         authUsers
       };
@@ -2748,6 +3072,9 @@
           normalizeSalesList();
           stockPurchasesList = Array.isArray(parsed.stockPurchasesList) ? parsed.stockPurchasesList : [];
           preOrdersList = Array.isArray(parsed.preOrdersList) ? parsed.preOrdersList : [];
+          classCombosList = Array.isArray(parsed.classCombosList) ? parsed.classCombosList : [];
+          dailyExpensesList = Array.isArray(parsed.dailyExpensesList) ? parsed.dailyExpensesList : [];
+          supplierPaymentsList = Array.isArray(parsed.supplierPaymentsList) ? parsed.supplierPaymentsList : [];
           if (parsed.storeConfig) storeConfig = parsed.storeConfig;
           if (Array.isArray(parsed.authUsers) && parsed.authUsers.length > 0) {
             authUsers = parsed.authUsers;
@@ -2879,6 +3206,61 @@
       const metrics = calculateCategoryMetrics(category);
       const row = metrics.rows.find(r => String(r.size).trim().toLowerCase() === String(size).trim().toLowerCase());
       return row ? Number(row.available) : 0;
+    }
+
+    function applySelectedClassComboToCart() {
+      const selEl = document.getElementById('posComboSelect');
+      if (!selEl) return;
+      const combo = classCombosList.find(c => c.id === selEl.value);
+      if (!combo || !Array.isArray(combo.items) || combo.items.length === 0) return;
+
+      const skipped = [];
+      let addedCount = 0;
+
+      combo.items.forEach(ci => {
+        const itemObj = (stockConfig[ci.category] || []).find(i => String(i.size) === String(ci.size));
+        if (!itemObj) {
+          skipped.push(`${ci.category} Size ${ci.size} (not in catalog)`);
+          return;
+        }
+        const existing = posCartItems.find(c => c.category === ci.category && String(c.size) === String(ci.size));
+        const alreadyInCart = existing ? existing.pieces : 0;
+        const availStock = getAvailableStockForSize(ci.category, ci.size);
+        const reqPcs = Math.max(1, Number(ci.pieces) || 1);
+
+        if (availStock <= 0 || (alreadyInCart + reqPcs) > availStock) {
+          skipped.push(`${ci.category} Size ${ci.size} (only ${Math.max(0, availStock)} left)`);
+          return;
+        }
+
+        if (existing) {
+          existing.pieces += reqPcs;
+        } else {
+          posCartItems.push({
+            category: ci.category,
+            size: String(ci.size),
+            pieces: reqPcs,
+            rate: Number(itemObj.price) || 0
+          });
+        }
+        addedCount++;
+      });
+
+      const savedClass = combo.studentClass || '';
+      renderContent();
+
+      if (savedClass) {
+        const classDropdown = document.getElementById('posStudentClass');
+        if (classDropdown) classDropdown.value = savedClass;
+      }
+
+      if (skipped.length > 0) {
+        alert(`Combo ke ${addedCount} items cart mein add ho gaye.
+
+Low/Out of Stock hone ki wajah se ye items skip hue:
+- ${skipped.join('
+- ')}`);
+      }
     }
 
     function addItemToPosCart() {
@@ -3329,12 +3711,14 @@
       alert(`Size ${oldSize} se badalkar Size ${newSize} kar diya gaya hai aur stock auto-adjust ho gaya hai!`);
     }
 
-    // ==================== DAILY CLOSING & CASH HANDOVER REPORT TAB ====================
+    // ==================== DAILY CLOSING, EXPENSES & CASH-IN-DRAWER TAB (#5) ====================
     function renderDailyClosingTab(container) {
-      const daySales = salesList.filter(s => s.date === closingFilterDate);
+      const daySales = salesList.filter(s => s.date === closingFilterDate && !s.isReturned);
+      const dayExpenses = dailyExpensesList.filter(ex => ex.date === closingFilterDate);
 
       let dayNetSales = 0;
       let dayCollected = 0;
+      let dayCashCollected = 0;
       let dayDue = 0;
       let dayDiscount = 0;
       let dayPieces = 0;
@@ -3351,10 +3735,17 @@
 
         const mode = s.paymentMode || 'Cash';
         byMode[mode] = (byMode[mode] || 0) + Number(s.paidAmount);
+        if (mode === 'Cash') {
+          dayCashCollected += Number(s.paidAmount);
+        }
 
         const hand = (s.inHandOf || 'Unassigned').trim();
         byHand[hand] = (byHand[hand] || 0) + Number(s.paidAmount);
       });
+
+      const totalDayExpense = dayExpenses.reduce((sum, ex) => sum + Number(ex.amount || 0), 0);
+      const netCashInDrawer = dayCashCollected - totalDayExpense;
+      const netBalanceAfterExpense = dayCollected - totalDayExpense;
 
       const modeRowsHTML = Object.keys(byMode).length ? Object.entries(byMode).map(([mode, amt]) => `
         <tr class="border-b border-slate-200">
@@ -3370,12 +3761,25 @@
         </tr>
       `).join('') : `<tr><td colspan="2" class="py-4 text-center text-xs text-slate-500">Is tareekh ko kisi staff ke paas cash entry nahi hai.</td></tr>`;
 
+      const expenseRowsHTML = dayExpenses.length ? dayExpenses.slice().reverse().map((ex, idx) => `
+        <tr class="border-b border-slate-200 hover:bg-rose-50/30">
+          <td class="py-2 px-3 text-center text-slate-500">${dayExpenses.length - idx}</td>
+          <td class="py-2 px-3 font-semibold text-slate-900">${escapeHTML(ex.title)}</td>
+          <td class="py-2 px-3 text-xs text-slate-600">${escapeHTML(ex.category || 'General')}</td>
+          <td class="py-2 px-3 text-xs text-slate-600">${escapeHTML(ex.paidBy || '-')}</td>
+          <td class="py-2 px-3 text-right font-bold text-rose-700">-${formatINR(ex.amount)}</td>
+          <td class="py-2 px-3 text-center">
+            ${isAdminUser() ? `<button type="button" onclick="deleteDailyExpense('${ex.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-bold">Delete</button>` : `<span class="text-[11px] text-slate-400">Saved</span>`}
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="6" class="py-5 text-center text-xs text-slate-500">Is tareekh ko koi shop expense / kharcha record nahi hua hai.</td></tr>`;
+
       container.innerHTML = `
         <div class="space-y-6">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
             <div>
-              <h2 class="text-lg font-bold text-slate-900">Daily Cash Closing &amp; Handover Report</h2>
-              <p class="text-xs text-slate-600">Tareekh chunein aur dekhein aaj kitna Cash/UPI aaya aur kis staff ke paas kitna paisa jama hai.</p>
+              <h2 class="text-lg font-bold text-slate-900">Daily Cash Closing, Expenses &amp; Drawer Tally</h2>
+              <p class="text-xs text-slate-600">Aaj ka total Cash/UPI collection, shop kharcha (expenses) aur exact Cash-in-Drawer hisaab dekhein.</p>
             </div>
             <div class="flex items-center gap-2">
               <label class="text-xs font-bold text-slate-700">Select Date:</label>
@@ -3384,7 +3788,7 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div class="bg-white border border-slate-200 rounded-xl p-3.5">
               <p class="text-[11px] font-bold uppercase text-slate-500">Pieces Sold</p>
               <p class="text-xl font-extrabold text-slate-900 mt-1">${dayPieces} Pcs</p>
@@ -3394,16 +3798,85 @@
               <p class="text-xl font-extrabold text-blue-900 mt-1">${formatINR(dayNetSales)}</p>
             </div>
             <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
-              <p class="text-[11px] font-bold uppercase text-emerald-800">Actual Collected</p>
+              <p class="text-[11px] font-bold uppercase text-emerald-800">Gross Collected</p>
               <p class="text-xl font-extrabold text-emerald-700 mt-1">${formatINR(dayCollected)}</p>
             </div>
             <div class="bg-rose-50 border border-rose-200 rounded-xl p-3.5">
-              <p class="text-[11px] font-bold uppercase text-rose-800">New Dues (Udhaar)</p>
-              <p class="text-xl font-extrabold text-rose-600 mt-1">${formatINR(dayDue)}</p>
+              <p class="text-[11px] font-bold uppercase text-rose-800">Shop Expenses</p>
+              <p class="text-xl font-extrabold text-rose-600 mt-1">-${formatINR(totalDayExpense)}</p>
+            </div>
+            <div class="bg-slate-900 text-white rounded-xl p-3.5 shadow-sm">
+              <p class="text-[11px] font-bold uppercase text-amber-300">Cash in Drawer</p>
+              <p class="text-xl font-extrabold text-white mt-1">${formatINR(netCashInDrawer)}</p>
+              <p class="text-[10px] text-slate-300 mt-0.5">Cash (${formatINR(dayCashCollected)}) - Exp</p>
             </div>
             <div class="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
-              <p class="text-[11px] font-bold uppercase text-amber-800">Discount Given</p>
-              <p class="text-xl font-extrabold text-amber-700 mt-1">${formatINR(dayDiscount)}</p>
+              <p class="text-[11px] font-bold uppercase text-amber-800">New Dues (Udhaar)</p>
+              <p class="text-xl font-extrabold text-amber-700 mt-1">${formatINR(dayDue)}</p>
+            </div>
+          </div>
+
+          <!-- Daily Shop Expense Entry & Ledger -->
+          <div class="bg-rose-50/60 border border-rose-200 rounded-xl p-4 sm:p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-base font-bold text-rose-950">+ Add Daily Shop Expense (Kharcha Entry)</h3>
+                <p class="text-xs text-rose-800">Chai-nashta, transport/rickshaw bhada, alteration, stationery ya koi bhi daily kharcha yahan likhein.</p>
+              </div>
+              <span class="text-xs font-bold bg-rose-200/80 text-rose-950 px-3 py-1 rounded-full self-start">
+                Net Closing Balance (All Modes - Exp): ${formatINR(netBalanceAfterExpense)}
+              </span>
+            </div>
+
+            <form onsubmit="handleAddDailyExpense(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Expense Description *</label>
+                <input type="text" id="expTitleInput" placeholder="e.g. Auto Bhada / Chai / Alteration" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm focus:outline-none focus:border-rose-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Category</label>
+                <select id="expCategoryInput"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm focus:outline-none focus:border-rose-700">
+                  <option value="Transport / Bhada">Transport / Bhada</option>
+                  <option value="Tea / Snacks">Tea / Snacks</option>
+                  <option value="Tailor / Alteration">Tailor / Alteration</option>
+                  <option value="Packing / Carry Bags">Packing / Carry Bags</option>
+                  <option value="Staff / Miscellaneous">Staff / Miscellaneous</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-rose-800 mb-1">Expense Amount (₹) *</label>
+                <input type="number" id="expAmountInput" min="1" placeholder="e.g. 150" required
+                  class="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-bold focus:outline-none focus:border-rose-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Paid By</label>
+                <input type="text" id="expPaidByInput" value="${escapeHTML(currentSession ? currentSession.displayName : '')}"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm focus:outline-none focus:border-rose-700" />
+              </div>
+              <div>
+                <button type="submit"
+                  class="w-full bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
+                  + Save Expense
+                </button>
+              </div>
+            </form>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+              <table class="min-w-full text-sm">
+                <thead class="bg-slate-800 text-white text-xs">
+                  <tr>
+                    <th class="py-2 px-3 text-center">#</th>
+                    <th class="py-2 px-3 text-left">Expense Description</th>
+                    <th class="py-2 px-3 text-left">Category</th>
+                    <th class="py-2 px-3 text-left">Paid By</th>
+                    <th class="py-2 px-3 text-right">Amount</th>
+                    <th class="py-2 px-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>${expenseRowsHTML}</tbody>
+              </table>
             </div>
           </div>
 
@@ -3416,7 +3889,7 @@
                 <tbody>${modeRowsHTML}</tbody>
                 <tfoot class="bg-slate-100 font-bold">
                   <tr>
-                    <td class="py-2.5 px-4">Total Collected</td>
+                    <td class="py-2.5 px-4">Total Gross Collected</td>
                     <td class="py-2.5 px-4 text-right text-emerald-800">${formatINR(dayCollected)}</td>
                   </tr>
                 </tfoot>
@@ -3431,7 +3904,7 @@
                 <tbody>${handRowsHTML}</tbody>
                 <tfoot class="bg-slate-100 font-bold">
                   <tr>
-                    <td class="py-2.5 px-4">Total Handover</td>
+                    <td class="py-2.5 px-4">Total Gross Handover</td>
                     <td class="py-2.5 px-4 text-right text-blue-950">${formatINR(dayCollected)}</td>
                   </tr>
                 </tfoot>
@@ -3445,6 +3918,37 @@
           </div>
         </div>
       `;
+    }
+
+    function handleAddDailyExpense(e) {
+      e.preventDefault();
+      const title = document.getElementById('expTitleInput').value.trim();
+      const category = document.getElementById('expCategoryInput').value;
+      const amount = Math.max(1, Number(document.getElementById('expAmountInput').value) || 0);
+      const paidBy = document.getElementById('expPaidByInput').value.trim();
+
+      if (!title || amount <= 0) return;
+
+      dailyExpensesList.push({
+        id: 'EXP-' + Date.now(),
+        date: closingFilterDate,
+        title,
+        category,
+        amount,
+        paidBy
+      });
+
+      logStaffActivity('Expense Added', `${title} (${category}): ₹${amount} on ${closingFilterDate}`);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function deleteDailyExpense(expId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is expense entry ko delete karna chahte hain?')) return;
+      dailyExpensesList = dailyExpensesList.filter(x => x.id !== expId);
+      saveDataAndSync();
+      renderContent();
     }
 
     // ==================== ADD / MANAGE PRODUCTS TAB ====================
@@ -3892,6 +4396,100 @@ function doPost(e) {
             </button>
           </div>
 
+          <!-- Feature #1: Admin Class Uniform Combo / Set Builder -->
+          <div class="bg-indigo-50/80 border border-indigo-200 rounded-xl p-5 space-y-4 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-sm sm:text-base font-bold text-indigo-950">Class Uniform Combo / Bundle Builder (Admin Only)</h3>
+                <p class="text-xs text-indigo-800 mt-0.5">
+                  Har class (jaise STD. V ya MONTESSORI I) ka full uniform set bana kar save karein — Quick POS mein 1 click par poora set load hoga!
+                </p>
+              </div>
+              <span class="text-[11px] font-bold bg-indigo-200 text-indigo-950 px-2.5 py-0.5 rounded-full self-start">
+                ${classCombosList.length} Saved Combos
+              </span>
+            </div>
+
+            <div class="bg-white border border-indigo-200 rounded-xl p-4 space-y-3">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Combo / Set Name *</label>
+                  <input type="text" id="newComboNameInput" placeholder="e.g. STD. V Full Winter Set (Size 30)"
+                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm focus:outline-none focus:border-indigo-700" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Target School Class (Optional)</label>
+                  <select id="newComboClassSelect"
+                    class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm focus:outline-none focus:border-indigo-700">
+                    ${getClassSelectOptionsHTML()}
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end pt-2 border-t border-slate-200">
+                <div class="sm:col-span-4">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">Product</label>
+                  <select id="comboItemCat" onchange="updateComboBuilderSizes()"
+                    class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-semibold">
+                    ${Object.keys(stockConfig).map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('')}
+                  </select>
+                </div>
+                <div class="sm:col-span-4">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">Size</label>
+                  <select id="comboItemSize"
+                    class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-semibold">
+                  </select>
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="block text-[11px] font-semibold text-slate-600 mb-1">Pieces</label>
+                  <input type="number" id="comboItemPcs" min="1" value="1"
+                    class="w-full bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-bold" />
+                </div>
+                <div class="sm:col-span-2">
+                  <button type="button" onclick="addItemToComboDraft()"
+                    class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-2 px-3 rounded-lg">
+                    + Add Item
+                  </button>
+                </div>
+              </div>
+
+              <div id="comboDraftPreviewBox" class="pt-1"></div>
+
+              <div class="flex justify-end pt-2 border-t border-slate-200">
+                <button type="button" onclick="saveNewClassCombo()"
+                  class="bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs sm:text-sm px-5 py-2.5 rounded-lg shadow transition">
+                  Save Class Combo &amp; Sync
+                </button>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              ${classCombosList.length ? classCombosList.map(cb => {
+                const itemsText = (cb.items || []).map(it => `${escapeHTML(it.category)} (Size ${escapeHTML(it.size)}) × ${it.pieces}`).join(' + ');
+                const estTotal = (cb.items || []).reduce((sum, it) => {
+                  const found = (stockConfig[it.category] || []).find(s => String(s.size) === String(it.size));
+                  return sum + ((found ? Number(found.price) : 0) * Number(it.pieces));
+                }, 0);
+                return `
+                  <div class="bg-white border border-indigo-200 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <span class="font-bold text-xs sm:text-sm text-slate-900">${escapeHTML(cb.comboName)}</span>
+                        ${cb.studentClass ? `<span class="bg-blue-100 text-blue-900 text-[10px] font-bold px-2 py-0.5 rounded">${escapeHTML(cb.studentClass)}</span>` : ''}
+                        <span class="text-xs font-extrabold text-emerald-700">Est. ${formatINR(estTotal)}</span>
+                      </div>
+                      <p class="text-xs text-slate-600 mt-0.5">${itemsText}</p>
+                    </div>
+                    <button type="button" onclick="deleteSavedClassCombo('${cb.id}')"
+                      class="text-xs bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold px-3 py-1.5 rounded-lg self-start sm:self-center">
+                      Delete Combo
+                    </button>
+                  </div>
+                `;
+              }).join('') : `<p class="text-xs text-slate-500 text-center py-2">Abhi koi Class Combo bana nahi hai. Upar se items jodein aur Save dabayein.</p>`}
+            </div>
+          </div>
+
           <!-- Admin Payment QR Code & UPI Setup (Shown at Bottom of App & Receipt) -->
           <div class="bg-white border border-slate-300 rounded-xl p-5 space-y-3 shadow-sm">
             <div class="flex items-center justify-between">
@@ -4008,6 +4606,92 @@ function doPost(e) {
           </div>
         </div>
       `;
+    }
+
+    function updateComboBuilderSizes() {
+      const catEl = document.getElementById('comboItemCat');
+      const sizeEl = document.getElementById('comboItemSize');
+      if (!catEl || !sizeEl) return;
+      const items = stockConfig[catEl.value] || [];
+      sizeEl.innerHTML = items.map(i => `<option value="${escapeHTML(i.size)}">Size ${escapeHTML(i.size)} (${formatINR(i.price)})</option>`).join('');
+    }
+
+    function renderComboDraftPreview() {
+      const box = document.getElementById('comboDraftPreviewBox');
+      if (!box) return;
+      if (!comboDraftItems.length) {
+        box.innerHTML = `<p class="text-[11px] text-slate-400 italic">Combo items list khali hai — upar se Sweater, Coat, etc. add karein.</p>`;
+        return;
+      }
+      box.innerHTML = `
+        <div class="flex flex-wrap gap-1.5">
+          ${comboDraftItems.map((it, idx) => `
+            <span class="inline-flex items-center gap-1.5 bg-indigo-100 text-indigo-950 text-xs font-bold px-2.5 py-1 rounded-full">
+              ${escapeHTML(it.category)} (Size ${escapeHTML(it.size)}) &times; ${it.pieces}
+              <button type="button" onclick="removeComboDraftItem(${idx})" class="text-rose-700 hover:text-rose-950 font-extrabold ml-1">&times;</button>
+            </span>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function addItemToComboDraft() {
+      const catEl = document.getElementById('comboItemCat');
+      const sizeEl = document.getElementById('comboItemSize');
+      const pcsEl = document.getElementById('comboItemPcs');
+      if (!catEl || !sizeEl || !pcsEl) return;
+
+      const category = catEl.value;
+      const size = String(sizeEl.value);
+      const pieces = Math.max(1, Number(pcsEl.value) || 1);
+
+      const existing = comboDraftItems.find(d => d.category === category && d.size === size);
+      if (existing) {
+        existing.pieces += pieces;
+      } else {
+        comboDraftItems.push({ category, size, pieces });
+      }
+      renderComboDraftPreview();
+    }
+
+    function removeComboDraftItem(idx) {
+      comboDraftItems.splice(idx, 1);
+      renderComboDraftPreview();
+    }
+
+    function saveNewClassCombo() {
+      const nameEl = document.getElementById('newComboNameInput');
+      const classEl = document.getElementById('newComboClassSelect');
+      const comboName = (nameEl ? nameEl.value : '').trim();
+      const studentClass = classEl ? classEl.value : '';
+
+      if (!comboName) {
+        alert('Kripya Combo / Set ka naam likhein (e.g. STD. V Full Set).');
+        return;
+      }
+      if (!comboDraftItems.length) {
+        alert('Pehle kam se kam 1 item combo mein add karein.');
+        return;
+      }
+
+      classCombosList.push({
+        id: 'CMB-' + Date.now(),
+        comboName,
+        studentClass,
+        items: JSON.parse(JSON.stringify(comboDraftItems))
+      });
+      comboDraftItems = [];
+      saveDataAndSync();
+      renderContent();
+      alert(`Class Combo "${comboName}" save ho gaya hai!`);
+    }
+
+    function deleteSavedClassCombo(comboId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is Class Combo ko delete karna chahte hain?')) return;
+      classCombosList = classCombosList.filter(c => c.id !== comboId);
+      saveDataAndSync();
+      renderContent();
     }
 
     function copyAppsScriptCode() {
