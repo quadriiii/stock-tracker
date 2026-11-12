@@ -64,28 +64,44 @@
         <p class="text-xs text-slate-300 mt-1">Authorized Admin &amp; Employee Login</p>
       </div>
 
-      <form onsubmit="handleLogin(event)" class="p-6 space-y-4">
+      <div class="p-6 space-y-4">
         <div id="loginErrorMsg" class="hidden bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold px-3.5 py-2.5 rounded-lg">
           Invalid Username or Password!
         </div>
 
         <div>
           <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Username / ID</label>
-          <input type="text" id="loginUsername" required autocomplete="username" autocapitalize="none" autocorrect="off" placeholder="Enter your user ID"
+          <input type="text" id="loginUsername" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); attemptLogin();}"
+            placeholder="Enter your user ID"
             class="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-800 focus:ring-2 focus:ring-blue-800/20" />
         </div>
 
         <div>
           <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">Password / PIN</label>
-          <input type="password" id="loginPassword" required autocomplete="current-password" placeholder="Enter your password"
-            class="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-800 focus:ring-2 focus:ring-blue-800/20" />
+          <div class="relative">
+            <input type="password" id="loginPassword" autocomplete="off"
+              onkeydown="if(event.key==='Enter'){event.preventDefault(); attemptLogin();}"
+              placeholder="Enter your password"
+              class="w-full border border-slate-300 rounded-xl px-3.5 py-2.5 pr-16 text-sm focus:outline-none focus:border-blue-800 focus:ring-2 focus:ring-blue-800/20" />
+            <button type="button" onclick="toggleLoginPassVisibility()" id="btnTogglePass"
+              class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-blue-800 hover:text-blue-950 px-2 py-1 rounded bg-blue-50">
+              Show
+            </button>
+          </div>
         </div>
 
-        <button type="submit" id="btnLoginSubmit"
-          class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm py-3 rounded-xl shadow-md transition">
+        <button type="button" onclick="attemptLogin()" id="btnLoginSubmit"
+          class="w-full bg-blue-900 hover:bg-blue-800 active:bg-blue-950 text-white font-bold text-sm py-3 rounded-xl shadow-md transition cursor-pointer">
           Login to Dashboard
         </button>
-      </form>
+
+        <div class="text-center pt-1">
+          <button type="button" onclick="resetLocalLoginCache()" class="text-[11px] text-slate-400 hover:text-slate-600 underline">
+            Reset Browser Cache if Stuck
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -209,25 +225,38 @@
     const STORAGE_KEY_AUTH_USERS = 'garment_tracker_auth_users_v2';
     const STORAGE_KEY_SESSION = 'garment_tracker_session_v2';
 
+    // Safe JSON parser so corrupted localStorage never crashes the script
+    function safeParseJSON(key, fallback) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return (parsed !== null && parsed !== undefined) ? parsed : fallback;
+      } catch (e) {
+        console.warn('Corrupt storage key cleared:', key);
+        localStorage.removeItem(key);
+        return fallback;
+      }
+    }
+
     let currentTab = 'Sweater';
     let selectedReceiptSaleIds = [];
     let isSyncing = false;
 
     let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(STORAGE_KEY_SCRIPT_URL) || '';
-    let stockConfig = JSON.parse(localStorage.getItem(STORAGE_KEY_STOCK)) || JSON.parse(JSON.stringify(INITIAL_STOCK));
-    let salesList = JSON.parse(localStorage.getItem(STORAGE_KEY_SALES)) || [];
-    let authUsers = JSON.parse(localStorage.getItem(STORAGE_KEY_AUTH_USERS)) || JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS));
-    let currentSession = JSON.parse(localStorage.getItem(STORAGE_KEY_SESSION) || 'null');
+    let stockConfig = safeParseJSON(STORAGE_KEY_STOCK, JSON.parse(JSON.stringify(INITIAL_STOCK)));
+    let salesList = safeParseJSON(STORAGE_KEY_SALES, []);
+    let authUsers = safeParseJSON(STORAGE_KEY_AUTH_USERS, JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS)));
+    let currentSession = safeParseJSON(STORAGE_KEY_SESSION, null);
 
-    let storeConfig = JSON.parse(localStorage.getItem(STORAGE_KEY_STORE)) || {
+    let storeConfig = safeParseJSON(STORAGE_KEY_STORE, {
       storeName: 'GARMENT STORE & UNIFORM HOUSE',
       storeSubtitle: 'Authorized Winter Wear & Garment Counter',
       storeAddress: 'Main Market Road, Patna, Bihar',
       storePhone: '+91-9876543210',
       footerNote: 'Thank you for your purchase! Goods once sold can be exchanged within 7 days with original receipt.'
-    };
+    });
 
-    // Safely normalize auth users so invalid/corrupt records never lock out Admin
     function normalizeAuthUsers() {
       if (!Array.isArray(authUsers)) {
         authUsers = JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS));
@@ -248,7 +277,6 @@
     }
     normalizeAuthUsers();
 
-    // Normalize size strings for backward compatibility
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
         size: String(item.size),
@@ -259,6 +287,29 @@
 
     function isAdminUser() {
       return currentSession && currentSession.role === 'Admin';
+    }
+
+    function toggleLoginPassVisibility() {
+      const passInput = document.getElementById('loginPassword');
+      const btn = document.getElementById('btnTogglePass');
+      if (!passInput || !btn) return;
+      if (passInput.type === 'password') {
+        passInput.type = 'text';
+        btn.textContent = 'Hide';
+      } else {
+        passInput.type = 'password';
+        btn.textContent = 'Show';
+      }
+    }
+
+    function resetLocalLoginCache() {
+      localStorage.removeItem(STORAGE_KEY_AUTH_USERS);
+      localStorage.removeItem(STORAGE_KEY_SESSION);
+      authUsers = JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS));
+      currentSession = null;
+      const errEl = document.getElementById('loginErrorMsg');
+      if (errEl) errEl.classList.add('hidden');
+      alert('Login cache reset ho gaya hai! Ab login karein.');
     }
 
     // ==================== AUTH / LOGIN LOGIC ====================
@@ -301,24 +352,37 @@
       }
     }
 
-    async function handleLogin(e) {
-      e.preventDefault();
-      const u = document.getElementById('loginUsername').value.trim().toLowerCase();
-      const p = document.getElementById('loginPassword').value.trim();
+    async function attemptLogin() {
+      const userInput = document.getElementById('loginUsername');
+      const passInput = document.getElementById('loginPassword');
       const errEl = document.getElementById('loginErrorMsg');
       const submitBtn = document.getElementById('btnLoginSubmit');
+
+      const u = (userInput ? userInput.value : '').trim().toLowerCase();
+      const p = (passInput ? passInput.value : '').trim();
+
+      if (!u || !p) {
+        if (errEl) {
+          errEl.textContent = 'Kripya Username aur Password dono dalein.';
+          errEl.classList.remove('hidden');
+        }
+        return;
+      }
 
       normalizeAuthUsers();
       let matched = authUsers.find(acc => acc.username.toLowerCase() === u && acc.password === p);
 
-      // If not matched locally and Google Sheet URL is set, fetch latest users from cloud first
+      // If not matched locally and Google Sheet URL is configured, check cloud with a 5s timeout
       if (!matched && googleScriptUrl) {
         if (submitBtn) {
           submitBtn.disabled = true;
-          submitBtn.textContent = 'Verifying...';
+          submitBtn.textContent = 'Checking Cloud...';
         }
         try {
-          const res = await fetch(googleScriptUrl + '?t=' + Date.now());
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+          const res = await fetch(googleScriptUrl + '?t=' + Date.now(), { signal: controller.signal });
+          clearTimeout(timeoutId);
           const data = await res.json();
           if (data && data.status === 'ok' && Array.isArray(data.authUsers) && data.authUsers.length > 0) {
             authUsers = data.authUsers;
@@ -327,7 +391,7 @@
             matched = authUsers.find(acc => acc.username.toLowerCase() === u && acc.password === p);
           }
         } catch (err) {
-          console.error('Login cloud check error:', err);
+          console.error('Login cloud check skipped/failed:', err);
         } finally {
           if (submitBtn) {
             submitBtn.disabled = false;
@@ -337,11 +401,14 @@
       }
 
       if (!matched) {
-        errEl.classList.remove('hidden');
+        if (errEl) {
+          errEl.textContent = 'Invalid Username or Password! Check spelling and try again.';
+          errEl.classList.remove('hidden');
+        }
         return;
       }
 
-      errEl.classList.add('hidden');
+      if (errEl) errEl.classList.add('hidden');
       currentSession = {
         id: matched.id,
         username: matched.username,
@@ -355,7 +422,8 @@
     function logoutUser() {
       currentSession = null;
       localStorage.removeItem(STORAGE_KEY_SESSION);
-      document.getElementById('loginPassword').value = '';
+      const passInput = document.getElementById('loginPassword');
+      if (passInput) passInput.value = '';
       checkAuthState();
     }
 
@@ -418,7 +486,6 @@
       const canAddMore = employees.length < MAX_EMPLOYEES;
 
       body.innerHTML = `
-        <!-- 1. Admin Profile & Password Section -->
         <div class="bg-amber-50/80 border border-amber-200 rounded-xl p-4 space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold text-slate-900">1. Admin Account (Apna Name, ID &amp; Password Badlein)</h3>
@@ -427,4 +494,1608 @@
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
             <div>
               <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Display Name</label>
-              <input type="text" id="admi
+              <input type="text" id="adminDisplayNameInput" value="${escapeHTML(adminAcc.displayName)}"
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-blue-800" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Admin Login ID</label>
+              <input type="text" id="adminUsernameInput" value="${escapeHTML(adminAcc.username)}"
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-blue-800" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">New Password</label>
+              <input type="text" id="adminPasswordInput" value="${escapeHTML(adminAcc.password)}"
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:border-blue-800" />
+            </div>
+            <div>
+              <button type="button" onclick="saveAdminProfileUpdate('${adminAcc.id}')"
+                class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow transition">
+                Update Admin
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-900">2. Employees List (${employees.length} / ${MAX_EMPLOYEES} Used)</h3>
+            <span class="text-xs text-slate-500">Edit karke Save dabayein</span>
+          </div>
+          <div class="space-y-2.5">
+            ${employeeRowsHTML}
+          </div>
+        </div>
+
+        ${canAddMore ? `
+        <form onsubmit="addNewEmployeeAccount(event)" class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
+          <h3 class="text-sm font-bold text-emerald-950">3. Add New Employee (${MAX_EMPLOYEES - employees.length} Slots Remaining)</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Employee Name *</label>
+              <input type="text" id="newEmpName" placeholder="e.g. Rahul Kumar" required
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-700" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Username / ID *</label>
+              <input type="text" id="newEmpUser" placeholder="e.g. rahul" required
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-700" />
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Password / PIN *</label>
+              <input type="text" id="newEmpPass" placeholder="e.g. 5678" required
+                class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-emerald-700" />
+            </div>
+            <div>
+              <button type="submit"
+                class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow transition">
+                + Add Employee
+              </button>
+            </div>
+          </div>
+        </form>
+        ` : `
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 font-medium text-center">
+          Maximum 5 employees limit poori ho chuki hai. Naya employee jodne ke liye pehle kisi ek ko remove karein.
+        </div>
+        `}
+      `;
+    }
+
+    function saveAdminProfileUpdate(adminId) {
+      const newName = document.getElementById('adminDisplayNameInput').value.trim();
+      const newUser = document.getElementById('adminUsernameInput').value.trim();
+      const newPass = document.getElementById('adminPasswordInput').value.trim();
+
+      if (!newName || !newUser || !newPass) {
+        alert('Admin Name, Username aur Password khali nahi ho sakte.');
+        return;
+      }
+
+      const duplicate = authUsers.some(u => u.id !== adminId && u.username.toLowerCase() === newUser.toLowerCase());
+      if (duplicate) {
+        alert('Ye Username kisi employee ke paas pehle se hai. Dusra username chunein.');
+        return;
+      }
+
+      const adminAcc = authUsers.find(u => u.id === adminId);
+      if (adminAcc) {
+        adminAcc.displayName = newName;
+        adminAcc.username = newUser;
+        adminAcc.password = newPass;
+      }
+
+      if (currentSession) {
+        currentSession.username = newUser;
+        currentSession.displayName = newName;
+        localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(currentSession));
+      }
+
+      saveDataAndSync();
+      checkAuthState();
+      renderManageUsersModalContent();
+      alert('Admin Name aur Password successfully update ho gaya!');
+    }
+
+    function saveSingleUserUpdate(empId) {
+      const nameEl = document.getElementById(`empName_${empId}`);
+      const userEl = document.getElementById(`empUser_${empId}`);
+      const passEl = document.getElementById(`empPass_${empId}`);
+      if (!nameEl || !userEl || !passEl) return;
+
+      const newName = nameEl.value.trim();
+      const newUser = userEl.value.trim();
+      const newPass = passEl.value.trim();
+
+      if (!newName || !newUser || !newPass) {
+        alert('Employee Name, Username aur Password teeno bharna zaroori hai.');
+        return;
+      }
+
+      const duplicate = authUsers.some(u => u.id !== empId && u.username.toLowerCase() === newUser.toLowerCase());
+      if (duplicate) {
+        alert('Ye Username pehle se kisi aur account mein use ho raha hai.');
+        return;
+      }
+
+      const emp = authUsers.find(u => u.id === empId);
+      if (emp) {
+        emp.displayName = newName;
+        emp.username = newUser;
+        emp.password = newPass;
+      }
+
+      saveDataAndSync();
+      renderManageUsersModalContent();
+      alert(`${newName} ka name aur password update ho gaya!`);
+    }
+
+    function addNewEmployeeAccount(e) {
+      e.preventDefault();
+      const employees = authUsers.filter(u => u.role !== 'Admin');
+      if (employees.length >= MAX_EMPLOYEES) {
+        alert(`Maximum ${MAX_EMPLOYEES} employees hi add kiye ja sakte hain.`);
+        return;
+      }
+
+      const nameVal = document.getElementById('newEmpName').value.trim();
+      const userVal = document.getElementById('newEmpUser').value.trim();
+      const passVal = document.getElementById('newEmpPass').value.trim();
+
+      if (!nameVal || !userVal || !passVal) return;
+
+      const duplicate = authUsers.some(u => u.username.toLowerCase() === userVal.toLowerCase());
+      if (duplicate) {
+        alert('Ye Username pehle se maujood hai. Dusra username dalein.');
+        return;
+      }
+
+      authUsers.push({
+        id: 'u_emp_' + Date.now(),
+        username: userVal,
+        password: passVal,
+        role: 'Employee',
+        displayName: nameVal
+      });
+
+      saveDataAndSync();
+      renderManageUsersModalContent();
+      alert(`Employee "${nameVal}" add ho gaya hai aur sabhi phones par sync ho raha hai!`);
+    }
+
+    function deleteEmployeeAccount(empId) {
+      const emp = authUsers.find(u => u.id === empId);
+      if (!emp) return;
+      if (!confirm(`Kya aap employee "${emp.displayName}" (${emp.username}) ko remove karna chahte hain?`)) return;
+
+      authUsers = authUsers.filter(u => u.id !== empId);
+      saveDataAndSync();
+      renderManageUsersModalContent();
+    }
+
+    // ==================== SYNC & STORAGE ====================
+    function updateSyncBadge(status, text) {
+      const badge = document.getElementById('syncStatusBadge');
+      const dot = document.getElementById('setupTabDot');
+      if (!badge) return;
+
+      if (status === 'connected') {
+        badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30';
+        badge.textContent = text || 'Google Sheet Live';
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+      } else if (status === 'syncing') {
+        badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30 animate-pulse';
+        badge.textContent = text || 'Syncing...';
+      } else if (status === 'error') {
+        badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-400/30';
+        badge.textContent = text || 'Sync Error';
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-rose-500';
+      } else {
+        badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30';
+        badge.textContent = text || 'Local Only (Setup Sync)';
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-500';
+      }
+    }
+
+    function saveLocalCache() {
+      localStorage.setItem(STORAGE_KEY_STOCK, JSON.stringify(stockConfig));
+      localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(salesList));
+      localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
+      localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
+    }
+
+    async function saveDataAndSync() {
+      saveLocalCache();
+      if (!googleScriptUrl) return;
+
+      try {
+        updateSyncBadge('syncing', 'Saving to Google Sheet...');
+        await fetch(googleScriptUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            action: 'syncAll',
+            stockConfig: stockConfig,
+            salesList: salesList,
+            storeConfig: storeConfig,
+            authUsers: authUsers,
+            updatedAt: new Date().toISOString()
+          })
+        });
+        updateSyncBadge('connected', 'Synced to Sheet');
+      } catch (err) {
+        console.error('Save sync error:', err);
+        updateSyncBadge('error', 'Offline / Sync Failed');
+      }
+    }
+
+    async function syncFromGoogleSheet(showToast = false) {
+      if (!googleScriptUrl) {
+        updateSyncBadge('local', 'Local Only (Setup Sync)');
+        if (showToast) {
+          alert('Pehle "Sync & Settings" tab mein jakar apna Web App URL save karein.');
+          switchTab('SyncSetup');
+        }
+        return;
+      }
+
+      if (isSyncing) return;
+      isSyncing = true;
+      updateSyncBadge('syncing', 'Loading Live Data...');
+
+      try {
+        const res = await fetch(googleScriptUrl + '?t=' + Date.now());
+        const data = await res.json();
+
+        if (data && data.status === 'ok') {
+          if (data.stockConfig && typeof data.stockConfig === 'object' && Object.keys(data.stockConfig).length > 0) {
+            const normalized = {};
+            Object.keys(data.stockConfig).forEach(cat => {
+              normalized[cat] = (data.stockConfig[cat] || []).map(item => ({
+                size: String(item.size),
+                opening: Number(item.opening) || 0,
+                price: Number(item.price) || 0
+              }));
+            });
+            stockConfig = normalized;
+          }
+          if (Array.isArray(data.salesList)) {
+            salesList = data.salesList;
+          }
+          if (data.storeConfig && data.storeConfig.storeName) {
+            storeConfig = data.storeConfig;
+          }
+          if (Array.isArray(data.authUsers) && data.authUsers.length > 0) {
+            authUsers = data.authUsers;
+            normalizeAuthUsers();
+            if (currentSession) {
+              const updatedSelf = authUsers.find(u => u.id === currentSession.id || u.username === currentSession.username);
+              if (updatedSelf) {
+                currentSession.username = updatedSelf.username;
+                currentSession.displayName = updatedSelf.displayName;
+                currentSession.role = updatedSelf.role;
+                localStorage.setItem(STORAGE_KEY_SESSION, JSON.stringify(currentSession));
+                const userBadge = document.getElementById('loggedInUserBadge');
+                if (userBadge) userBadge.textContent = `${currentSession.displayName} (${currentSession.role})`;
+              }
+            }
+          }
+          saveLocalCache();
+          renderContent();
+          updateSyncBadge('connected', 'Google Sheet Live');
+          if (showToast) alert('Google Sheet se latest data sync ho gaya!');
+        } else {
+          updateSyncBadge('connected', 'Google Sheet Connected');
+        }
+      } catch (err) {
+        console.error('Fetch sync error:', err);
+        updateSyncBadge('error', 'Sync Connection Failed');
+        if (showToast) alert('Google Sheet se data load nahi ho paya. Web App URL aur permissions check karein.');
+      } finally {
+        isSyncing = false;
+      }
+    }
+
+    function formatINR(num) {
+      return '₹' + Number(num || 0).toLocaleString('en-IN');
+    }
+
+    function getTodayDate() {
+      const d = new Date();
+      return d.toISOString().split('T')[0];
+    }
+
+    function formatDateReadable(dateStr) {
+      if (!dateStr) return '-';
+      const parts = dateStr.split('-');
+      if (parts.length !== 3) return dateStr;
+      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    }
+
+    function numberToWordsINR(num) {
+      num = Math.round(Number(num) || 0);
+      if (num === 0) return 'Zero Rupees Only';
+
+      const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+        'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+      const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+      function inWords(n) {
+        if (n < 20) return a[n];
+        if (n < 100) return b[Math.floor(n / 10)] + (n % 10 ? ' ' + a[n % 10] : '');
+        if (n < 1000) return a[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + inWords(n % 100) : '');
+        if (n < 100000) return inWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + inWords(n % 1000) : '');
+        if (n < 10000000) return inWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + inWords(n % 100000) : '');
+        return inWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + inWords(n % 10000000) : '');
+      }
+
+      return inWords(num) + ' Rupees Only';
+    }
+
+    function calculateCategoryMetrics(category) {
+      const items = stockConfig[category] || [];
+      const catSales = salesList.filter(s => s.category === category);
+
+      let totalOpening = 0;
+      let totalSold = 0;
+      let totalAvailable = 0;
+      let totalRemainingValue = 0;
+
+      const rows = items.map((item, index) => {
+        const soldQty = catSales
+          .filter(s => String(s.size).trim().toLowerCase() === String(item.size).trim().toLowerCase())
+          .reduce((sum, s) => sum + Number(s.pieces), 0);
+        const available = Number(item.opening) - soldQty;
+        const stockValue = available * Number(item.price);
+
+        totalOpening += Number(item.opening);
+        totalSold += soldQty;
+        totalAvailable += available;
+        totalRemainingValue += stockValue;
+
+        return {
+          sno: index + 1,
+          size: item.size,
+          price: Number(item.price),
+          opening: Number(item.opening),
+          sold: soldQty,
+          available: available,
+          stockValue: stockValue
+        };
+      });
+
+      const totalSalesAmount = catSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const totalDiscountGiven = catSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
+
+      return {
+        rows,
+        catSales,
+        totalOpening,
+        totalSold,
+        totalAvailable,
+        totalRemainingValue,
+        totalSalesAmount,
+        totalDiscountGiven
+      };
+    }
+
+    function renderSummaryCards() {
+      const categories = Object.keys(stockConfig);
+      let grandOpening = 0;
+      let grandSold = 0;
+      let grandAvailable = 0;
+      let grandSalesAmt = 0;
+      let grandDiscount = 0;
+
+      const breakdownOpening = [];
+      const breakdownSold = [];
+      const breakdownAvail = [];
+
+      categories.forEach(cat => {
+        const m = calculateCategoryMetrics(cat);
+        grandOpening += m.totalOpening;
+        grandSold += m.totalSold;
+        grandAvailable += m.totalAvailable;
+        grandSalesAmt += m.totalSalesAmount;
+        grandDiscount += m.totalDiscountGiven;
+
+        breakdownOpening.push(`${cat}: ${m.totalOpening}`);
+        breakdownSold.push(`${cat}: ${m.totalSold}`);
+        breakdownAvail.push(`${cat}: ${m.totalAvailable}`);
+      });
+
+      const cardsHTML = `
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Opening Stock (${categories.length} Items)</p>
+          <p class="text-2xl font-bold text-slate-900 mt-1">${grandOpening} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
+          <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownOpening.join(' | ')}">${breakdownOpening.join(' | ') || 'No products'}</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Sold</p>
+          <p class="text-2xl font-bold text-amber-600 mt-1">${grandSold} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
+          <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownSold.join(' | ')}">${breakdownSold.join(' | ') || '0 sold'}</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Available Stock</p>
+          <p class="text-2xl font-bold text-emerald-600 mt-1">${grandAvailable} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
+          <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownAvail.join(' | ')}">${breakdownAvail.join(' | ') || '0 available'}</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Net Sales Revenue</p>
+          <p class="text-2xl font-bold text-blue-900 mt-1">${formatINR(grandSalesAmt)}</p>
+          <p class="text-xs text-slate-500 mt-1 truncate">Discount Given: <span class="text-rose-600 font-semibold">${formatINR(grandDiscount)}</span></p>
+        </div>
+      `;
+      document.getElementById('summaryCards').innerHTML = cardsHTML;
+    }
+
+    function renderNavigationTabs() {
+      const navBar = document.getElementById('navTabsBar');
+      if (!navBar) return;
+
+      const categories = Object.keys(stockConfig);
+      const catButtons = categories.map(cat => {
+        const isActive = currentTab === cat;
+        return `
+          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3.5 px-4 text-sm sm:text-base transition ${isActive ? 'tab-active' : 'tab-inactive'}">
+            ${escapeHTML(cat)} Stock &amp; Sales
+          </button>
+        `;
+      }).join('');
+
+      const fixedTabs = [
+        { id: 'AddProduct', label: '+ Add / Manage Products', badge: 'NEW' },
+        { id: 'Summary', label: 'Overall Summary' },
+        { id: 'Receipt', label: 'Print Receipt (A4 PDF)' },
+        { id: 'SyncSetup', label: 'Sync & Settings', dot: true }
+      ];
+
+      const fixedButtons = fixedTabs.map(t => {
+        const isActive = currentTab === t.id;
+        return `
+          <button onclick="switchTab('${t.id}')" class="py-3.5 px-4 text-sm sm:text-base transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
+            <span>${t.label}</span>
+            ${t.badge ? `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">${t.badge}</span>` : ''}
+            ${t.dot ? `<span id="setupTabDot" class="w-2 h-2 rounded-full ${googleScriptUrl ? 'bg-emerald-500' : 'bg-amber-500'}"></span>` : ''}
+          </button>
+        `;
+      }).join('');
+
+      navBar.innerHTML = catButtons + fixedButtons;
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      renderContent();
+    }
+
+    function openReceiptForSale(saleId) {
+      selectedReceiptSaleIds = [saleId];
+      switchTab('Receipt');
+    }
+
+    function renderContent() {
+      renderSummaryCards();
+      renderNavigationTabs();
+      const container = document.getElementById('tabContent');
+
+      if (currentTab === 'AddProduct') {
+        renderAddProductTab(container);
+        return;
+      }
+
+      if (currentTab === 'SyncSetup') {
+        renderSyncSetupTab(container);
+        return;
+      }
+
+      if (currentTab === 'Receipt') {
+        renderReceiptTab(container);
+        return;
+      }
+
+      if (currentTab === 'Summary') {
+        const categories = Object.keys(stockConfig);
+        let grandOpen = 0, grandSold = 0, grandAvail = 0, grandRemVal = 0, grandSales = 0, grandDisc = 0;
+
+        const catRowsHTML = categories.map(cat => {
+          const m = calculateCategoryMetrics(cat);
+          grandOpen += m.totalOpening;
+          grandSold += m.totalSold;
+          grandAvail += m.totalAvailable;
+          grandRemVal += m.totalRemainingValue;
+          grandSales += m.totalSalesAmount;
+          grandDisc += m.totalDiscountGiven;
+
+          return `
+            <tr class="hover:bg-slate-50">
+              <td class="px-4 py-3 font-semibold text-slate-900">${escapeHTML(cat)}</td>
+              <td class="px-4 py-3 text-center">${m.totalOpening}</td>
+              <td class="px-4 py-3 text-center text-amber-600 font-semibold">${m.totalSold}</td>
+              <td class="px-4 py-3 text-center text-emerald-700 font-bold">${m.totalAvailable}</td>
+              <td class="px-4 py-3 text-right">${formatINR(m.totalRemainingValue)}</td>
+              <td class="px-4 py-3 text-right text-rose-600">${formatINR(m.totalDiscountGiven)}</td>
+              <td class="px-4 py-3 text-right font-semibold text-blue-900">${formatINR(m.totalSalesAmount)}</td>
+            </tr>
+          `;
+        }).join('');
+
+        container.innerHTML = `
+          <div class="space-y-6">
+            <div>
+              <h2 class="text-lg font-bold text-slate-800 mb-3">Consolidated Category Summary</h2>
+              <div class="overflow-x-auto border border-slate-200 rounded-lg">
+                <table class="min-w-full divide-y divide-slate-200 text-sm">
+                  <thead class="bg-slate-800 text-white">
+                    <tr>
+                      <th class="px-4 py-3 text-left font-semibold">Product Category</th>
+                      <th class="px-4 py-3 text-center font-semibold">Opening Stock</th>
+                      <th class="px-4 py-3 text-center font-semibold">Sold Pieces</th>
+                      <th class="px-4 py-3 text-center font-semibold">Available Stock</th>
+                      <th class="px-4 py-3 text-right font-semibold">Remaining Stock Value</th>
+                      <th class="px-4 py-3 text-right font-semibold">Total Discount</th>
+                      <th class="px-4 py-3 text-right font-semibold">Net Sales Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-200 bg-white">
+                    ${catRowsHTML}
+                  </tbody>
+                  <tfoot class="bg-slate-200 font-bold text-slate-900">
+                    <tr>
+                      <td class="px-4 py-3">Grand Total</td>
+                      <td class="px-4 py-3 text-center">${grandOpen}</td>
+                      <td class="px-4 py-3 text-center">${grandSold}</td>
+                      <td class="px-4 py-3 text-center">${grandAvail}</td>
+                      <td class="px-4 py-3 text-right">${formatINR(grandRemVal)}</td>
+                      <td class="px-4 py-3 text-right text-rose-700">${formatINR(grandDisc)}</td>
+                      <td class="px-4 py-3 text-right">${formatINR(grandSales)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <h2 class="text-lg font-bold text-slate-800 mb-3">All Recent Sales (All Products)</h2>
+              ${renderSalesTable(salesList, true)}
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const category = currentTab;
+      if (!stockConfig[category]) {
+        currentTab = Object.keys(stockConfig)[0] || 'AddProduct';
+        renderContent();
+        return;
+      }
+
+      const metrics = calculateCategoryMetrics(category);
+      const sizeOptions = (stockConfig[category] || [])
+        .map(item => `<option value="${escapeHTML(item.size)}" data-price="${item.price}">Size ${escapeHTML(item.size)} (${formatINR(item.price)})</option>`)
+        .join('');
+
+      const stockRowsHTML = metrics.rows.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2.5 text-center text-slate-600">${r.sno}</td>
+          <td class="px-3 py-2.5 text-center font-bold text-slate-900">${escapeHTML(r.size)}</td>
+          <td class="px-3 py-2.5 text-center">
+            <input type="number" min="0" value="${r.price}"
+              onchange="updateProductPrice('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
+              class="w-20 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
+              title="Edit Unit Price" />
+          </td>
+          <td class="px-3 py-2.5 text-center">
+            <input type="number" min="0" value="${r.opening}"
+              onchange="updateOpeningStock('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
+              class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
+              title="Edit Opening Stock" />
+          </td>
+          <td class="px-3 py-2.5 text-center font-semibold text-amber-600">${r.sold}</td>
+          <td class="px-3 py-2.5 text-center font-bold ${r.available < 0 ? 'text-rose-600' : 'text-emerald-700'}">${r.available}</td>
+          <td class="px-3 py-2.5 text-right font-medium text-slate-800">${formatINR(r.stockValue)}</td>
+        </tr>
+      `).join('');
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <div>
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-1">
+              <h2 class="text-lg font-bold text-slate-800">${escapeHTML(category)} Live Stock &amp; Price List</h2>
+              <span class="text-xs text-slate-500">Tip: Unit Price ya Opening Stock box par click karke directly update kar sakte hain (Auto-Syncs)</span>
+            </div>
+            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-3 text-center font-semibold">S. No.</th>
+                    <th class="px-3 py-3 text-center font-semibold">Size</th>
+                    <th class="px-3 py-3 text-center font-semibold">Unit Price (₹)</th>
+                    <th class="px-3 py-3 text-center font-semibold">Opening Stock</th>
+                    <th class="px-3 py-3 text-center font-semibold">Sold Qty</th>
+                    <th class="px-3 py-3 text-center font-semibold">Available Stock</th>
+                    <th class="px-3 py-3 text-right font-semibold">Stock Value (₹)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">
+                  ${stockRowsHTML}
+                </tbody>
+                <tfoot class="bg-slate-200 font-bold text-slate-900">
+                  <tr>
+                    <td colspan="3" class="px-3 py-3 text-right">Total ${escapeHTML(category)} Stock</td>
+                    <td class="px-3 py-3 text-center">${metrics.totalOpening}</td>
+                    <td class="px-3 py-3 text-center text-amber-700">${metrics.totalSold}</td>
+                    <td class="px-3 py-3 text-center text-emerald-800">${metrics.totalAvailable}</td>
+                    <td class="px-3 py-3 text-right">${formatINR(metrics.totalRemainingValue)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 sm:p-5">
+            <h3 class="text-base font-bold text-slate-900 mb-3">New ${escapeHTML(category)} Sale Entry (Stock Auto-Update + Discount Option)</h3>
+            <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+                <input type="date" id="saleDate" value="${getTodayDate()}" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Customer / Student) *</label>
+                <input type="text" id="saleSoldTo" placeholder="Customer / Student Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile / Class / Roll (Optional)</label>
+                <input type="text" id="saleCustomerMeta" placeholder="e.g. Class 5-A / 98765xxxxx"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Size *</label>
+                <select id="saleSize" onchange="updateFormPreview('${escapeHTML(category)}')" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                  ${sizeOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Total Pieces *</label>
+                <input type="number" id="salePieces" min="1" value="1" oninput="updateFormPreview('${escapeHTML(category)}')" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-rose-700 mb-1">Add Discount (Optional) ₹</label>
+                <input type="number" id="saleDiscount" min="0" value="0" placeholder="0" oninput="updateFormPreview('${escapeHTML(category)}')"
+                  class="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-600" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Mode</label>
+                <select id="salePaymentMode"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                  <option value="Cash">Cash</option>
+                  <option value="UPI / Online">UPI / Online</option>
+                  <option value="Card">Card</option>
+                  <option value="Due / Credit">Due / Credit</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold By</label>
+                <input type="text" id="saleSoldBy" value="${escapeHTML(currentSession ? currentSession.displayName : '')}" placeholder="Staff / Seller Name"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Amount In Hand Of</label>
+                <input type="text" id="saleInHand" placeholder="Cash Holder Name"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+
+              <div class="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/80 mt-1">
+                <div class="text-xs text-slate-700 space-x-3">
+                  <span>Subtotal: <strong id="previewSubAmt">₹0</strong></span>
+                  <span class="text-rose-600">Discount: <strong id="previewDiscAmt">-₹0</strong></span>
+                  <span class="text-sm">Final Bill: <strong id="previewAmtLabel" class="text-blue-900 text-base">₹0</strong></span>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button type="submit" onclick="window._openReceiptAfterSave = false"
+                    class="bg-blue-900 hover:bg-blue-800 text-white font-semibold text-sm px-4 py-2.5 rounded-lg shadow transition">
+                    + Add Sale (<span id="previewAmt">₹0</span>)
+                  </button>
+                  <button type="submit" onclick="window._openReceiptAfterSave = true"
+                    class="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm px-4 py-2.5 rounded-lg shadow transition flex items-center gap-1.5">
+                    <span>+ Add Sale &amp; Print A4 Receipt</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div>
+            <h3 class="text-lg font-bold text-slate-800 mb-3">${escapeHTML(category)} Sales Register</h3>
+            ${renderSalesTable(metrics.catSales, false)}
+          </div>
+        </div>
+      `;
+
+      updateFormPreview(category);
+    }
+
+    // ==================== ADD / MANAGE PRODUCTS TAB ====================
+    function renderAddProductTab(container) {
+      const existingCats = Object.keys(stockConfig);
+      const catSuggestions = existingCats.map(c => `<option value="${escapeHTML(c)}">`).join('');
+
+      const allProductsRows = [];
+      existingCats.forEach(cat => {
+        (stockConfig[cat] || []).forEach(item => {
+          const soldQty = salesList
+            .filter(s => s.category === cat && String(s.size).trim().toLowerCase() === String(item.size).trim().toLowerCase())
+            .reduce((sum, s) => sum + Number(s.pieces), 0);
+          const avail = Number(item.opening) - soldQty;
+          allProductsRows.push({
+            category: cat,
+            size: item.size,
+            opening: item.opening,
+            sold: soldQty,
+            available: avail,
+            price: item.price
+          });
+        });
+      });
+
+      const tableHTML = allProductsRows.map((p, i) => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2.5 text-center text-slate-600">${i + 1}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(p.category)}</td>
+          <td class="px-3 py-2.5 text-center font-semibold text-slate-800">${escapeHTML(p.size)}</td>
+          <td class="px-3 py-2.5 text-center">${p.opening}</td>
+          <td class="px-3 py-2.5 text-center text-amber-600 font-semibold">${p.sold}</td>
+          <td class="px-3 py-2.5 text-center font-bold ${p.available < 0 ? 'text-rose-600' : 'text-emerald-700'}">${p.available}</td>
+          <td class="px-3 py-2.5 text-right font-semibold text-blue-900">${formatINR(p.price)}</td>
+          <td class="px-3 py-2.5 text-center">
+            <button onclick="deleteProductSize('${escapeHTML(p.category)}', '${escapeHTML(p.size)}')"
+              class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
+              Remove
+            </button>
+          </td>
+        </tr>
+      `).join('');
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+              <div>
+                <h2 class="text-lg font-bold text-slate-900">Add New Product / Size / Stock</h2>
+                <p class="text-xs text-slate-600 mt-0.5">
+                  Naya product type (jaise <strong>Shirt, Pant, Tie, Blazer</strong>) ya purane product mein naya size add karein — ye automatic save hokar sabhi phones par dikhega!
+                </p>
+              </div>
+              <span class="text-xs font-semibold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full self-start">
+                Auto-Syncs to All Phones
+              </span>
+            </div>
+
+            <form onsubmit="handleAddNewProduct(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Product Type / Category *</label>
+                <input type="text" id="newProdType" list="existingCatList" placeholder="e.g. Shirt, Pant, Sweater" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+                <datalist id="existingCatList">${catSuggestions}</datalist>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Add Size *</label>
+                <input type="text" id="newProdSize" placeholder="e.g. 28, 30, M, L, XL" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Available Stock Quantity *</label>
+                <input type="number" id="newProdQty" min="0" value="10" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Unit Price (₹) *</label>
+                <input type="number" id="newProdPrice" min="0" placeholder="e.g. 450" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+
+              <div>
+                <button type="submit"
+                  class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm px-4 py-2.5 rounded-lg shadow transition">
+                  + Save Product &amp; Sync
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div>
+            <h3 class="text-lg font-bold text-slate-800 mb-3">Complete Product &amp; Size Catalog (${allProductsRows.length} Items)</h3>
+            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-3 text-center font-semibold">S.No</th>
+                    <th class="px-3 py-3 text-left font-semibold">Product Type</th>
+                    <th class="px-3 py-3 text-center font-semibold">Size</th>
+                    <th class="px-3 py-3 text-center font-semibold">Opening Stock</th>
+                    <th class="px-3 py-3 text-center font-semibold">Sold</th>
+                    <th class="px-3 py-3 text-center font-semibold">Available</th>
+                    <th class="px-3 py-3 text-right font-semibold">Price (₹)</th>
+                    <th class="px-3 py-3 text-center font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">
+                  ${tableHTML}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAddNewProduct(e) {
+      e.preventDefault();
+      const rawType = document.getElementById('newProdType').value.trim();
+      const sizeVal = document.getElementById('newProdSize').value.trim();
+      const qtyVal = Math.max(0, Number(document.getElementById('newProdQty').value) || 0);
+      const priceVal = Math.max(0, Number(document.getElementById('newProdPrice').value) || 0);
+
+      if (!rawType || !sizeVal) return;
+
+      let matchedCat = Object.keys(stockConfig).find(c => c.toLowerCase() === rawType.toLowerCase());
+      if (!matchedCat) {
+        matchedCat = rawType.charAt(0).toUpperCase() + rawType.slice(1);
+        stockConfig[matchedCat] = [];
+      }
+
+      const existingItem = stockConfig[matchedCat].find(
+        i => String(i.size).trim().toLowerCase() === sizeVal.toLowerCase()
+      );
+
+      if (existingItem) {
+        if (!confirm(`"${matchedCat} - Size ${sizeVal}" pehle se maujood hai. Kya aap isme +${qtyVal} stock jodna aur price ₹${priceVal} update karna chahte hain?`)) {
+          return;
+        }
+        existingItem.opening = Number(existingItem.opening) + qtyVal;
+        existingItem.price = priceVal;
+      } else {
+        stockConfig[matchedCat].push({
+          size: sizeVal,
+          opening: qtyVal,
+          price: priceVal
+        });
+      }
+
+      saveDataAndSync();
+      alert(`"${matchedCat} (Size ${sizeVal})" save ho gaya hai aur sabhi phones par sync ho raha hai!`);
+      switchTab(matchedCat);
+    }
+
+    function deleteProductSize(category, size) {
+      if (!confirm(`Kya aap "${category} - Size ${size}" ko catalog se hatana chahte hain?`)) return;
+      if (!stockConfig[category]) return;
+
+      stockConfig[category] = stockConfig[category].filter(
+        i => String(i.size).trim().toLowerCase() !== String(size).trim().toLowerCase()
+      );
+
+      if (stockConfig[category].length === 0) {
+        delete stockConfig[category];
+      }
+
+      saveDataAndSync();
+      renderContent();
+    }
+
+    // ==================== SALES TABLE ====================
+    function renderSalesTable(records, showCategoryCol) {
+      if (!records.length) {
+        return `<div class="text-center py-8 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500">
+          Abhi tak koi sale entry nahi hui hai. Upar form se pehli sale add karein.
+        </div>`;
+      }
+
+      const totalPcs = records.reduce((s, r) => s + Number(r.pieces), 0);
+      const totalDisc = records.reduce((s, r) => s + Number(r.discount || 0), 0);
+      const totalAmt = records.reduce((s, r) => s + Number(r.amount), 0);
+
+      const rows = records.slice().reverse().map(r => {
+        const disc = Number(r.discount || 0);
+        return `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
+          <td class="px-3 py-2.5 font-medium text-slate-900">
+            ${escapeHTML(r.soldTo)}
+            ${r.customerMeta ? `<div class="text-xs text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
+          </td>
+          ${showCategoryCol ? `<td class="px-3 py-2.5 text-center font-semibold">${escapeHTML(r.category)}</td>` : ''}
+          <td class="px-3 py-2.5 text-center font-bold">${escapeHTML(r.size)}</td>
+          <td class="px-3 py-2.5 text-center font-semibold text-amber-700">${r.pieces}</td>
+          <td class="px-3 py-2.5 text-center">${formatINR(r.rate)}</td>
+          <td class="px-3 py-2.5 text-center text-rose-600 font-medium">${disc > 0 ? '-' + formatINR(disc) : '-'}</td>
+          <td class="px-3 py-2.5 text-right font-bold text-blue-900">${formatINR(r.amount)}</td>
+          <td class="px-3 py-2.5 text-center text-xs font-medium text-slate-700">${escapeHTML(r.paymentMode || 'Cash')}</td>
+          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(r.soldBy || '-')}</td>
+          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(r.inHandOf || '-')}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-2">
+            <button onclick="openReceiptForSale('${r.id}')" class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded font-semibold">
+              Receipt
+            </button>
+            <button onclick="deleteSaleEntry('${r.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
+              Delete
+            </button>
+          </td>
+        </tr>
+      `}).join('');
+
+      return `
+        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-800 text-white">
+              <tr>
+                <th class="px-3 py-3 text-center font-semibold">Date</th>
+                <th class="px-3 py-3 text-left font-semibold">Sold To</th>
+                ${showCategoryCol ? `<th class="px-3 py-3 text-center font-semibold">Item</th>` : ''}
+                <th class="px-3 py-3 text-center font-semibold">Size</th>
+                <th class="px-3 py-3 text-center font-semibold">Pieces</th>
+                <th class="px-3 py-3 text-center font-semibold">Rate (₹)</th>
+                <th class="px-3 py-3 text-center font-semibold">Discount</th>
+                <th class="px-3 py-3 text-right font-semibold">Final Amount</th>
+                <th class="px-3 py-3 text-center font-semibold">Mode</th>
+                <th class="px-3 py-3 text-left font-semibold">Sold By</th>
+                <th class="px-3 py-3 text-left font-semibold">Amount In Hand Of</th>
+                <th class="px-3 py-3 text-center font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white">
+              ${rows}
+            </tbody>
+            <tfoot class="bg-slate-200 font-bold text-slate-900">
+              <tr>
+                <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total Sales</td>
+                <td class="px-3 py-3 text-center">${totalPcs}</td>
+                <td class="px-3 py-3"></td>
+                <td class="px-3 py-3 text-center text-rose-700">-${formatINR(totalDisc)}</td>
+                <td class="px-3 py-3 text-right">${formatINR(totalAmt)}</td>
+                <td colspan="4"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }
+
+    // ==================== SYNC & SETTINGS TAB ====================
+    function renderSyncSetupTab(container) {
+      const appsScriptCode = `function doGet(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var dbSheet = ss.getSheetByName('DB_JSON');
+  if (!dbSheet) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'empty' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var raw = dbSheet.getRange('A1').getValue();
+  if (!raw) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'empty' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  return ContentService.createTextOutput(raw)
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var payload = JSON.parse(e.postData.contents);
+  payload.status = 'ok';
+
+  // 1. Save full JSON state (Products, Stock, Sales, Users) for multi-device sync
+  var dbSheet = ss.getSheetByName('DB_JSON');
+  if (!dbSheet) {
+    dbSheet = ss.insertSheet('DB_JSON');
+  }
+  dbSheet.getRange('A1').setValue(JSON.stringify(payload));
+
+  // 2. Write readable Sales Ledger in 'Sales_Register' sheet
+  var salesSheet = ss.getSheetByName('Sales_Register');
+  if (!salesSheet) {
+    salesSheet = ss.insertSheet('Sales_Register');
+  }
+  salesSheet.clear();
+  var headers = ['Date', 'Sold To', 'Customer Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Final Amount', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+  salesSheet.appendRow(headers);
+  salesSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
+
+  if (payload.salesList && payload.salesList.length > 0) {
+    var rows = payload.salesList.map(function(r) {
+      var sub = Number(r.pieces) * Number(r.rate);
+      return [r.date, r.soldTo, r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
+    });
+    salesSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  return ContentService.createTextOutput(JSON.stringify({ status: 'saved' }))
+    .setMimeType(ContentService.MimeType.JSON);
+}`;
+
+      container.innerHTML = `
+        <div class="max-w-4xl mx-auto space-y-6">
+          ${isAdminUser() ? `
+          <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900">Admin &amp; Employee Password Management</h3>
+              <p class="text-xs text-slate-600">Apna Admin name/password ya max 5 employees ke login accounts manage karein.</p>
+            </div>
+            <button onclick="openManageUsersModal()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow">
+              Change Password / Users
+            </button>
+          </div>
+          ` : ''}
+
+          <div class="bg-white border border-slate-300 rounded-xl p-5 space-y-3 shadow-sm">
+            <label class="block text-sm font-bold text-slate-900">Google Apps Script Web App URL (Live Cloud Sync)</label>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <input type="url" id="gsheetUrlInput" value="${escapeHTML(googleScriptUrl)}"
+                placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                class="flex-1 border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm focus:outline-none focus:border-blue-800" />
+              <button onclick="saveGoogleSheetUrl()"
+                class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm px-5 py-2.5 rounded-lg shadow transition">
+                Save &amp; Sync Now
+              </button>
+            </div>
+            <p class="text-xs text-slate-500">
+              <strong>Permanent URL Setup:</strong> File mein line 159 par <code>const DEFAULT_GOOGLE_SCRIPT_URL = "AAPKA_URL";</code> daal kar GitHub par commit karein taaki har phone par bina setup ke live sync chale.
+            </p>
+          </div>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3 text-sm text-slate-800">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Google Apps Script Code</span>
+              <button onclick="copyAppsScriptCode()" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded font-semibold">
+                Copy Code
+              </button>
+            </div>
+            <pre id="appsScriptCodeBox" class="bg-slate-900 text-emerald-300 p-4 rounded-lg text-xs overflow-x-auto leading-relaxed">${escapeHTML(appsScriptCode)}</pre>
+          </div>
+
+          ${isAdminUser() ? `
+          <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h4 class="text-sm font-bold text-rose-900">Danger Zone: Reset All Data</h4>
+              <p class="text-xs text-rose-700">Sabhi sales entries delete karke default Sweater &amp; Coat stock wapas layega.</p>
+            </div>
+            <button onclick="resetAllData()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold px-4 py-2 rounded-lg shadow">
+              Reset Default Data
+            </button>
+          </div>
+          ` : ''}
+        </div>
+      `;
+    }
+
+    function copyAppsScriptCode() {
+      const codeEl = document.getElementById('appsScriptCodeBox');
+      if (!codeEl) return;
+      navigator.clipboard.writeText(codeEl.textContent).then(() => {
+        alert('Apps Script code copy ho gaya!');
+      });
+    }
+
+    async function saveGoogleSheetUrl() {
+      const input = document.getElementById('gsheetUrlInput');
+      if (!input) return;
+      const url = input.value.trim();
+      if (!url) {
+        googleScriptUrl = '';
+        localStorage.removeItem(STORAGE_KEY_SCRIPT_URL);
+        updateSyncBadge('local', 'Local Only');
+        alert('Google Sheet URL hata diya gaya hai.');
+        return;
+      }
+      if (!url.startsWith('https://script.google.com/')) {
+        alert('Kripya sahi Google Apps Script Web App URL dalein.');
+        return;
+      }
+
+      googleScriptUrl = url;
+      localStorage.setItem(STORAGE_KEY_SCRIPT_URL, url);
+
+      updateSyncBadge('syncing', 'Connecting...');
+      try {
+        const res = await fetch(googleScriptUrl + '?t=' + Date.now());
+        const data = await res.json();
+        if (data && data.status === 'ok' && ((Array.isArray(data.salesList) && data.salesList.length > 0) || data.stockConfig)) {
+          stockConfig = data.stockConfig || stockConfig;
+          salesList = data.salesList || salesList;
+          storeConfig = data.storeConfig || storeConfig;
+          if (Array.isArray(data.authUsers) && data.authUsers.length > 0) {
+            authUsers = data.authUsers;
+            normalizeAuthUsers();
+          }
+          saveLocalCache();
+          renderContent();
+          updateSyncBadge('connected', 'Google Sheet Live');
+          alert('Connected! Google Sheet ka data load ho gaya hai.');
+        } else {
+          await saveDataAndSync();
+          alert('Connected! Current data Google Sheet mein upload ho gaya hai.');
+        }
+      } catch (e) {
+        updateSyncBadge('error', 'Connection Error');
+        alert('Connection fail hua. Deploy permissions mein "Anyone" check karein.');
+      }
+    }
+
+    // ==================== A4 PDF RECEIPT TAB ====================
+    function renderReceiptTab(container) {
+      if (!salesList.length) {
+        container.innerHTML = `
+          <div class="text-center py-12 bg-slate-50 border border-dashed border-slate-300 rounded-xl">
+            <p class="text-base font-semibold text-slate-700">Abhi tak koi sale entry nahi hai!</p>
+            <p class="text-sm text-slate-500 mt-1">Pehle kisi bhi product tab se sale add karein, uske baad yahan A4 PDF receipt generate hogi.</p>
+          </div>
+        `;
+        return;
+      }
+
+      selectedReceiptSaleIds = selectedReceiptSaleIds.filter(id => salesList.some(s => s.id === id));
+      if (selectedReceiptSaleIds.length === 0) {
+        selectedReceiptSaleIds = [salesList[salesList.length - 1].id];
+      }
+
+      const selectedSales = salesList.filter(s => selectedReceiptSaleIds.includes(s.id));
+      const primarySale = selectedSales[0];
+
+      const saleIndex = salesList.findIndex(s => s.id === primarySale.id) + 1;
+      const receiptNo = `INV-${primarySale.date.replace(/-/g, '')}-${String(saleIndex).padStart(3, '0')}`;
+
+      const grandTotalPieces = selectedSales.reduce((sum, s) => sum + Number(s.pieces), 0);
+      const grandSubtotal = selectedSales.reduce((sum, s) => sum + (Number(s.pieces) * Number(s.rate)), 0);
+      const grandDiscount = selectedSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
+      const grandTotalAmount = selectedSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const amountInWords = numberToWordsINR(grandTotalAmount);
+
+      const salesCheckboxRows = salesList.slice().reverse().map(s => {
+        const isChecked = selectedReceiptSaleIds.includes(s.id);
+        const disc = Number(s.discount || 0);
+        return `
+          <label class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${isChecked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-200 hover:bg-slate-50'}">
+            <input type="checkbox" value="${s.id}" ${isChecked ? 'checked' : ''}
+              onchange="toggleReceiptSaleSelection('${s.id}')"
+              class="mt-1 rounded text-blue-900 focus:ring-blue-800" />
+            <div class="flex-1 text-xs">
+              <div class="flex justify-between font-bold text-slate-900">
+                <span>${escapeHTML(s.soldTo)}</span>
+                <span class="text-blue-900">${formatINR(s.amount)}</span>
+              </div>
+              <div class="text-slate-600 mt-0.5">
+                ${escapeHTML(s.category)} (Size ${escapeHTML(s.size)}) &times; ${s.pieces} Pcs &bull; ${formatDateReadable(s.date)}
+                ${disc > 0 ? `<span class="text-rose-600 font-semibold"> (Disc: -${formatINR(disc)})</span>` : ''}
+              </div>
+              <div class="text-[11px] text-slate-400 mt-0.5">
+                Sold By: ${escapeHTML(s.soldBy || '-')} | Hand: ${escapeHTML(s.inHandOf || '-')}
+              </div>
+            </div>
+          </label>
+        `;
+      }).join('');
+
+      const itemRowsHTML = selectedSales.map((item, idx) => {
+        const lineSub = Number(item.pieces) * Number(item.rate);
+        const lineDisc = Number(item.discount || 0);
+        return `
+        <tr class="border-b border-slate-300">
+          <td class="py-3 px-3 text-center text-slate-700">${idx + 1}</td>
+          <td class="py-3 px-3 font-semibold text-slate-900">
+            ${escapeHTML(item.category)}
+            <div class="text-[11px] font-normal text-slate-500">
+              Date: ${formatDateReadable(item.date)}${lineDisc > 0 ? ` &bull; Discount: -${formatINR(lineDisc)}` : ''}
+            </div>
+          </td>
+          <td class="py-3 px-3 text-center font-bold text-slate-800">${escapeHTML(item.size)}</td>
+          <td class="py-3 px-3 text-center font-semibold text-slate-800">${item.pieces}</td>
+          <td class="py-3 px-3 text-right text-slate-800">${formatINR(item.rate)}</td>
+          <td class="py-3 px-3 text-right font-bold text-slate-900">${formatINR(lineSub)}</td>
+        </tr>
+      `}).join('');
+
+      const fillerCount = Math.max(0, 4 - selectedSales.length);
+      const fillerRowsHTML = Array(fillerCount).fill(`
+        <tr class="border-b border-slate-200">
+          <td class="py-3.5 px-3">&nbsp;</td>
+          <td class="py-3.5 px-3"></td>
+          <td class="py-3.5 px-3"></td>
+          <td class="py-3.5 px-3"></td>
+          <td class="py-3.5 px-3"></td>
+          <td class="py-3.5 px-3"></td>
+        </tr>
+      `).join('');
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          <div class="xl:col-span-4 space-y-5">
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-slate-900">1. Receipt Header / Shop Details</h3>
+                <span class="text-[11px] text-emerald-700 font-medium">Auto-Saves</span>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Shop / School / Organization Name</label>
+                <input type="text" value="${escapeHTML(storeConfig.storeName)}"
+                  oninput="updateStoreConfig('storeName', this.value)"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Tagline / Sub-header</label>
+                <input type="text" value="${escapeHTML(storeConfig.storeSubtitle)}"
+                  oninput="updateStoreConfig('storeSubtitle', this.value)"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+              </div>
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Address</label>
+                  <input type="text" value="${escapeHTML(storeConfig.storeAddress)}"
+                    oninput="updateStoreConfig('storeAddress', this.value)"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Contact / Phone</label>
+                  <input type="text" value="${escapeHTML(storeConfig.storePhone)}"
+                    oninput="updateStoreConfig('storePhone', this.value)"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Footer Note / Terms</label>
+                <input type="text" value="${escapeHTML(storeConfig.footerNote)}"
+                  oninput="updateStoreConfig('footerNote', this.value)"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+              </div>
+            </div>
+
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-slate-900">2. Select Sale Entry (Multi-Select Allowed)</h3>
+                <span class="text-xs font-semibold text-blue-900">${selectedSales.length} Selected</span>
+              </div>
+              <p class="text-[11px] text-slate-500">Ek hi customer ne alag-alag items liye hon to dono tick karke ek combined A4 receipt bana sakte hain.</p>
+              <div class="max-h-72 overflow-y-auto space-y-2 pr-1">
+                ${salesCheckboxRows}
+              </div>
+            </div>
+
+            <div class="bg-blue-950 text-white rounded-xl p-4 space-y-2.5 shadow">
+              <h3 class="text-sm font-bold">3. Download / Print A4 PDF</h3>
+              <button onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
+                class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
+                Download A4 PDF Receipt
+              </button>
+              <button onclick="window.print()"
+                class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-sm py-2 px-4 rounded-lg transition">
+                Direct Print (A4 Page)
+              </button>
+            </div>
+          </div>
+
+          <div class="xl:col-span-8 bg-slate-200/80 p-3 sm:p-6 rounded-xl border border-slate-300 overflow-x-auto">
+            <div class="text-center text-xs font-semibold text-slate-600 mb-3">
+              A4 Size Live Receipt Preview (210mm &times; 297mm)
+            </div>
+
+            <div id="receiptPrintArea" class="a4-sheet shadow-xl border border-slate-300 flex flex-col justify-between">
+              <div>
+                <div class="border-b-2 border-slate-900 pb-4 flex justify-between items-start gap-4">
+                  <div>
+                    <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 uppercase">${escapeHTML(storeConfig.storeName)}</h1>
+                    <p class="text-xs font-medium text-slate-600 mt-0.5">${escapeHTML(storeConfig.storeSubtitle)}</p>
+                    <p class="text-xs text-slate-600 mt-1">${escapeHTML(storeConfig.storeAddress)} &bull; Ph: ${escapeHTML(storeConfig.storePhone)}</p>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <span class="inline-block bg-slate-900 text-white text-xs font-bold uppercase tracking-widest px-3 py-1 rounded">
+                      SALES RECEIPT
+                    </span>
+                    <p class="text-xs font-bold text-slate-800 mt-2">Receipt No: <span class="font-mono">${receiptNo}</span></p>
+                    <p class="text-xs text-slate-600 mt-0.5">Date: <strong>${formatDateReadable(primarySale.date)}</strong></p>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4 my-5 bg-slate-50 border border-slate-300 rounded-lg p-3.5 text-xs">
+                  <div class="space-y-1.5">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Billed To (Customer Details)</p>
+                    <p class="text-sm font-bold text-slate-900">${escapeHTML(primarySale.soldTo)}</p>
+                    ${primarySale.customerMeta ? `<p class="text-slate-700">Details: <strong>${escapeHTML(primarySale.customerMeta)}</strong></p>` : ''}
+                    <p class="text-slate-700">Payment Mode: <strong>${escapeHTML(primarySale.paymentMode || 'Cash')}</strong></p>
+                  </div>
+                  <div class="space-y-1.5 border-l border-slate-300 pl-4">
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Counter &amp; Handling Info</p>
+                    <p class="text-slate-700">Sold By: <strong>${escapeHTML(primarySale.soldBy || 'Counter Staff')}</strong></p>
+                    <p class="text-slate-700">Amount In Hand Of: <strong>${escapeHTML(primarySale.inHandOf || 'Cash Counter')}</strong></p>
+                    <p class="text-slate-700">Total Items: <strong>${grandTotalPieces} Piece(s)</strong></p>
+                  </div>
+                </div>
+
+                <table class="w-full border-collapse border border-slate-400 text-xs mt-4">
+                  <thead>
+                    <tr class="bg-slate-900 text-white">
+                      <th class="py-2.5 px-3 text-center border border-slate-700 w-12">S.No</th>
+                      <th class="py-2.5 px-3 text-left border border-slate-700">Item Description</th>
+                      <th class="py-2.5 px-3 text-center border border-slate-700 w-20">Size</th>
+                      <th class="py-2.5 px-3 text-center border border-slate-700 w-24">Quantity (Pcs)</th>
+                      <th class="py-2.5 px-3 text-right border border-slate-700 w-28">Unit Rate (₹)</th>
+                      <th class="py-2.5 px-3 text-right border border-slate-700 w-32">Amount (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${itemRowsHTML}
+                    ${fillerRowsHTML}
+                  </tbody>
+                  <tfoot>
+                    ${grandDiscount > 0 ? `
+                    <tr class="bg-slate-50 text-slate-700 border-t border-slate-400">
+                      <td colspan="5" class="py-2 px-3 text-right font-semibold">Subtotal</td>
+                      <td class="py-2 px-3 text-right font-semibold">${formatINR(grandSubtotal)}</td>
+                    </tr>
+                    <tr class="bg-rose-50/60 text-rose-700">
+                      <td colspan="5" class="py-2 px-3 text-right font-semibold">Less: Discount</td>
+                      <td class="py-2 px-3 text-right font-bold">-${formatINR(grandDiscount)}</td>
+                    </tr>
+                    ` : ''}
+                    <tr class="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-900">
+                      <td colspan="3" class="py-2.5 px-3 text-right uppercase">Net Payable Total</td>
+                      <td class="py-2.5 px-3 text-center text-sm">${grandTotalPieces} Pcs</td>
+                      <td class="py-2.5 px-3"></td>
+                      <td class="py-2.5 px-3 text-right text-base text-blue-950">${formatINR(grandTotalAmount)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+
+                <div class="mt-4 p-3 bg-slate-50 border border-slate-300 rounded text-xs flex flex-col sm:flex-row sm:justify-between gap-2">
+                  <div>
+                    <span class="text-slate-500 font-semibold">Amount in Words: </span>
+                    <span class="font-bold text-slate-900 italic">${amountInWords}</span>
+                  </div>
+                  <div class="text-right font-bold text-emerald-700">
+                    Status: PAID (${escapeHTML(primarySale.paymentMode || 'Cash')})
+                  </div>
+                </div>
+              </div>
+
+              <div class="pt-12">
+                <div class="grid grid-cols-2 gap-8 text-xs text-slate-700 mb-6">
+                  <div>
+                    <div class="border-b border-slate-400 w-48 h-10"></div>
+                    <p class="font-semibold mt-1.5">Customer Signature</p>
+                  </div>
+                  <div class="text-right flex flex-col items-end">
+                    <div class="border-b border-slate-400 w-48 h-10"></div>
+                    <p class="font-semibold mt-1.5">Authorized Signatory (${escapeHTML(primarySale.soldBy || 'Store Manager')})</p>
+                  </div>
+                </div>
+
+                <div class="border-t border-slate-300 pt-3 text-center text-[11px] text-slate-500">
+                  <p class="font-medium text-slate-700">${escapeHTML(storeConfig.footerNote)}</p>
+                  <p class="mt-1">Computer Generated A4 Receipt &bull; Printed on ${formatDateReadable(getTodayDate())}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function toggleReceiptSaleSelection(saleId) {
+      if (selectedReceiptSaleIds.includes(saleId)) {
+        if (selectedReceiptSaleIds.length === 1) {
+          alert('Kam se kam 1 sale entry select rehni chahiye.');
+          renderContent();
+          return;
+        }
+        selectedReceiptSaleIds = selectedReceiptSaleIds.filter(id => id !== saleId);
+      } else {
+        selectedReceiptSaleIds.push(saleId);
+      }
+      renderContent();
+    }
+
+    let storeConfigSaveTimer = null;
+    function updateStoreConfig(key, value) {
+      storeConfig[key] = value;
+      saveLocalCache();
+      renderContent();
+      clearTimeout(storeConfigSaveTimer);
+      storeConfigSaveTimer = setTimeout(() => {
+        saveDataAndSync();
+      }, 1000);
+    }
+
+    function downloadReceiptPDF(receiptNo, customerName) {
+      const element = document.getElementById('receiptPrintArea');
+      if (!element) return;
+
+      const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const opt = {
+        margin: 0,
+        filename: `${receiptNo}_${safeCustomer}.pdf`,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      if (typeof html2pdf !== 'undefined') {
+        html2pdf().set(opt).from(element).save();
+      } else {
+        window.print();
+      }
+    }
+
+    // ==================== SALE FORM CALCULATIONS ====================
+    function updateFormPreview(category) {
+      const sizeEl = document.getElementById('saleSize');
+      const pcsEl = document.getElementById('salePieces');
+      const discEl = document.getElementById('saleDiscount');
+      const subEl = document.getElementById('previewSubAmt');
+      const discPrevEl = document.getElementById('previewDiscAmt');
+      const previewEl = document.getElementById('previewAmt');
+      const previewLabelEl = document.getElementById('previewAmtLabel');
+      if (!sizeEl || !pcsEl) return;
+
+      const selectedSize = String(sizeEl.value);
+      const pcs = Math.max(1, Number(pcsEl.value) || 0);
+      const itemObj = (stockConfig[category] || []).find(
+        i => String(i.size).trim().toLowerCase() === selectedSize.trim().toLowerCase()
+      );
+      const rate = itemObj ? Number(itemObj.price) : 0;
+      const subtotal = pcs * rate;
+      const rawDiscount = Math.max(0, Number(discEl ? discEl.value : 0) || 0);
+      const appliedDiscount = Math.min(subtotal, rawDiscount);
+      const finalAmount = Math.max(0, subtotal - appliedDiscount);
+
+      if (subEl) subEl.textContent = formatINR(subtotal);
+      if (discPrevEl) discPrevEl.textContent = '-' + formatINR(appliedDiscount);
+      if (previewEl) previewEl.textContent = formatINR(finalAmount);
+      if (previewLabelEl) previewLabelEl.textContent = formatINR(finalAmount);
+    }
+
+    function addSaleEntry(e, category) {
+      e.preventDefault();
+      const date = document.getElementById('saleDate').value;
+      const soldTo = document.getElementById('saleSoldTo').value.trim();
+      const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
+      const size = String(document.getElementById('saleSize').value);
+      const pieces = Number(document.getElementById('salePieces').value);
+      const rawDiscount = Math.max(0, Number(document.getElementById('saleDiscount').value) || 0);
+      const paymentMode = document.getElementById('salePaymentMode').value;
+      const soldBy = document.getElementById('saleSoldBy').value.trim();
+      const inHandOf = document.getElementById('saleInHand').value.trim();
+
+      const itemObj = (stockConfig[category] || []).find(
+        i => String(i.size).trim().toLowerCase() === size.trim().toLowerCase()
+      );
+      const rate = itemObj ? Number(itemObj.price) : 0;
+      const subtotal = pieces * rate;
+      const discount = Math.min(subtotal, rawDiscount);
+      const amount = Math.max(0, subtotal - discount);
+      const newId = Date.now().toString();
+
+      salesList.push({
+        id: newId,
+        date,
+        soldTo,
+        customerMeta,
+        category,
+        size,
+        pieces,
+        rate,
+        discount,
+        amount,
+        paymentMode,
+        soldBy,
+        inHandOf
+      });
+
+      saveDataAndSync();
+
+      if (window._openReceiptAfterSave) {
+        window._openReceiptAfterSave = false;
+        selectedReceiptSaleIds = [newId];
+        switchTab('Receipt');
+      } else {
+        renderContent();
+      }
+    }
+
+    function deleteSaleEntry(id) {
+      if (!confirm('Kya aap is sale entry ko delete karna chahte hain? Stock wapas jud jayega.')) return;
+      salesList = salesList.filter(s => s.id !== id);
+      selectedReceiptSaleIds = selectedReceiptSaleIds.filter(sid => sid !== id);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateOpeningStock(category, size, newVal) {
+      const val = Math.max(0, Number(newVal) || 0);
+      const item = (stockConfig[category] || []).find(
+        i => String(i.size).trim().toLowerCase() === String(size).trim().toLowerCase()
+      );
+      if (item) {
+        item.opening = val;
+        saveDataAndSync();
+        renderContent();
+      }
+    }
+
+    function updateProductPrice(category, size, newVal) {
+      const val = Math.max(0, Number(newVal) || 0);
+      const item = (stockConfig[category] || []).find(
+        i => String(i.size).trim().toLowerCase() === String(size).trim().toLowerCase()
+      );
+      if (item) {
+        item.price = val;
+        saveDataAndSync();
+        renderContent();
+      }
+    }
+
+    function exportCSV() {
+      if (!salesList.length) {
+        alert('Export karne ke liye koi sales entry nahi hai.');
+        return;
+      }
+      const headers = ['Date', 'Sold To', 'Customer Details', 'Item', 'Size', 'Total Pieces', 'Rate', 'Subtotal', 'Discount', 'Final Amount', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+      const rows = salesList.map(r => {
+        const sub = Number(r.pieces) * Number(r.rate);
+        return [
+          r.date,
+          `"${(r.soldTo || '').replace(/"/g, '""')}"`,
+          `"${(r.customerMeta || '').replace(/"/g, '""')}"`,
+          `"${(r.category || '').replace(/"/g, '""')}"`,
+          `"${(r.size || '').replace(/"/g, '""')}"`,
+          r.pieces,
+          r.rate,
+          sub,
+          r.discount || 0,
+          r.amount,
+          `"${(r.paymentMode || 'Cash').replace(/"/g, '""')}"`,
+          `"${(r.soldBy || '').replace(/"/g, '""')}"`,
+          `"${(r.inHandOf || '').replace(/"/g, '""')}"`
+        ];
+      });
+      const csvContent = [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Garment_Sales_Report_${getTodayDate()}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function resetAllData() {
+      if (!isAdminUser()) {
+        alert('Sirf Admin hi data reset kar sakta hai.');
+        return;
+      }
+      if (!confirm('Kya aap sabhi sales entries delete karke default stock wapas lana chahte hain?')) return;
+      stockConfig = JSON.parse(JSON.stringify(INITIAL_STOCK));
+      salesList = [];
+      selectedReceiptSaleIds = [];
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function escapeHTML(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // Start App with Login Check
+    checkAuthState();
+  </script>
+</body>
+</html>
