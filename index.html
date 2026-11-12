@@ -17,7 +17,7 @@
     .a4-sheet {
       width: 210mm;
       min-height: 296mm;
-      padding: 15mm 17mm;
+      padding: 14mm 16mm;
       margin: 0 auto;
       background: #ffffff;
       color: #0f172a;
@@ -38,7 +38,7 @@
         width: 210mm !important;
         min-height: 297mm !important;
         margin: 0 !important;
-        padding: 14mm 17mm !important;
+        padding: 13mm 16mm !important;
         box-shadow: none !important;
         border: none !important;
       }
@@ -158,17 +158,17 @@
               User
             </span>
           </div>
-          <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Opening Stock Date: 03-11-2026 &bull; Multi-Item Billing, Partial Dues, Exchange &amp; Live Cloud Sync</p>
+          <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Auto-Sync Every 20s &bull; Class-Wise Student Billing, Multi-Item POS, Stock Inward &amp; WhatsApp PDF</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button id="btnAdminChangePass" onclick="openManageUsersModal()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold px-3.5 py-2 rounded-lg shadow transition">
             Change Password / Users
           </button>
           <button onclick="syncFromGoogleSheet(true)" id="btnRefreshSync" class="bg-blue-700 hover:bg-blue-600 text-white text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-lg shadow transition">
-            Refresh Sync
+            Sync Now
           </button>
           <button onclick="exportCSV()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-lg shadow transition">
-            Export Sales CSV
+            Export CSV
           </button>
           <button onclick="logoutUser()" class="bg-slate-700 hover:bg-slate-600 text-white text-xs sm:text-sm font-semibold px-3.5 py-2 rounded-lg shadow transition">
             Logout
@@ -188,7 +188,7 @@
         <!-- Populated dynamically -->
       </section>
 
-      <!-- Navigation Tabs (Dynamic Categories + Fixed Tabs) -->
+      <!-- Navigation Tabs -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div id="navTabsBar" class="flex flex-wrap border-b border-slate-200 bg-slate-50 px-3">
           <!-- Populated dynamically -->
@@ -202,18 +202,46 @@
     </main>
 
     <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-      Connected to Google Sheets Cloud Sync &bull; Real-time multi-device stock, POS billing, dues &amp; sales ledger
+      Connected to Google Sheets Auto-Sync (20s) &bull; Real-time multi-device stock, class-wise POS billing &amp; PDF receipts
     </footer>
   </div>
 
   <script>
     // =========================================================================
-    // Your Connected Google Apps Script Web App URL
+    // Connected Google Apps Script Web App URL
     // =========================================================================
     const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw-C74pc1bd0fwSd-5rYQoKgqewxzPIKHgfAro20ceQP5_LTyBSfqNgJOM4kMwF0mbS/exec";
 
     const MAX_EMPLOYEES = 5;
     const LOW_STOCK_THRESHOLD = 2;
+    const AUTO_SYNC_INTERVAL_MS = 20000;
+
+    // Predefined School Classes List
+    const SCHOOL_CLASSES = [
+      "PRE-SCHOOL",
+      "PLAYGROUP",
+      "MONTESSORI I",
+      "MONTESSORI II",
+      "HIFZ PLUS",
+      "STD. I",
+      "STD. II",
+      "STD. III",
+      "STD. IV",
+      "STD. V",
+      "STD. VI",
+      "STD. VII",
+      "STD. VIII",
+      "STD. IX",
+      "STD. X"
+    ];
+
+    function getClassSelectOptionsHTML(selectedVal = '') {
+      const base = `<option value="">-- Select Class --</option>`;
+      const opts = SCHOOL_CLASSES.map(cls =>
+        `<option value="${escapeHTML(cls)}" ${cls === selectedVal ? 'selected' : ''}>${escapeHTML(cls)}</option>`
+      ).join('');
+      return base + opts;
+    }
 
     const INITIAL_STOCK = {
       Sweater: [
@@ -242,7 +270,8 @@
 
     const STORAGE_KEY_SALES = 'garment_tracker_sales_v1';
     const STORAGE_KEY_STOCK = 'garment_tracker_stock_v1';
-    const STORAGE_KEY_STORE = 'garment_tracker_store_info_v1';
+    const STORAGE_KEY_PURCHASES = 'garment_tracker_purchases_v1';
+    const STORAGE_KEY_STORE = 'garment_tracker_store_info_v2';
     const STORAGE_KEY_SCRIPT_URL = 'garment_tracker_gsheet_url_v1';
     const STORAGE_KEY_AUTH_USERS = 'garment_tracker_auth_users_v2';
     const STORAGE_KEY_SESSION = 'garment_tracker_session_v2';
@@ -263,11 +292,20 @@
     let selectedReceiptSaleIds = [];
     let posCartItems = [];
     let isSyncing = false;
+    let isSavingToCloud = false;
+    let autoSyncTimer = null;
     let closingFilterDate = new Date().toISOString().split('T')[0];
+
+    // Search, Class & Date Filter state for Sales Register
+    let salesFilterSearch = '';
+    let salesFilterClass = '';
+    let salesFilterFrom = '';
+    let salesFilterTo = '';
 
     let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(STORAGE_KEY_SCRIPT_URL) || '';
     let stockConfig = safeParseJSON(STORAGE_KEY_STOCK, JSON.parse(JSON.stringify(INITIAL_STOCK)));
     let salesList = safeParseJSON(STORAGE_KEY_SALES, []);
+    let stockPurchasesList = safeParseJSON(STORAGE_KEY_PURCHASES, []);
     let authUsers = safeParseJSON(STORAGE_KEY_AUTH_USERS, JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS)));
     let currentSession = safeParseJSON(STORAGE_KEY_SESSION, null);
 
@@ -276,6 +314,9 @@
       storeSubtitle: 'Authorized Winter Wear & Garment Counter',
       storeAddress: 'Main Market Road, Patna, Bihar',
       storePhone: '+91-9876543210',
+      upiId: '',
+      logoDataUrl: '',
+      qrDataUrl: '',
       footerNote: 'Thank you for your purchase! Goods once sold can be exchanged within 7 days with original receipt.'
     });
 
@@ -299,7 +340,6 @@
     }
     normalizeAuthUsers();
 
-    // Normalize sales records for backward compatibility (partial payment & due fields)
     function normalizeSalesList() {
       if (!Array.isArray(salesList)) salesList = [];
       salesList = salesList.map(s => {
@@ -310,6 +350,7 @@
         const dueAmt = Math.max(0, netAmt - paidAmt);
         return {
           ...s,
+          studentClass: s.studentClass || '',
           discount: Number(s.discount || 0),
           amount: netAmt,
           paidAmount: paidAmt,
@@ -318,6 +359,8 @@
       });
     }
     normalizeSalesList();
+
+    if (!Array.isArray(stockPurchasesList)) stockPurchasesList = [];
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -354,6 +397,29 @@
       alert('Login cache reset ho gaya hai! Ab login karein.');
     }
 
+    // ==================== 20-SECOND REAL-TIME BACKGROUND AUTO-SYNC ====================
+    function startAutoSyncLoop() {
+      stopAutoSyncLoop();
+      if (!googleScriptUrl) return;
+      autoSyncTimer = setInterval(() => {
+        if (!currentSession || !currentSession.username) return;
+        if (document.hidden) return;
+        if (isSavingToCloud || isSyncing) return;
+
+        const activeTag = document.activeElement ? document.activeElement.tagName : '';
+        if (activeTag === 'INPUT' || activeTag === 'TEXTAREA' || activeTag === 'SELECT') return;
+
+        syncFromGoogleSheet(false, true);
+      }, AUTO_SYNC_INTERVAL_MS);
+    }
+
+    function stopAutoSyncLoop() {
+      if (autoSyncTimer) {
+        clearInterval(autoSyncTimer);
+        autoSyncTimer = null;
+      }
+    }
+
     // ==================== AUTH / LOGIN LOGIC ====================
     function checkAuthState() {
       const loginScreen = document.getElementById('loginScreen');
@@ -378,7 +444,7 @@
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'PendingDues', 'DailyClosing', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -388,11 +454,13 @@
 
         renderContent();
         if (googleScriptUrl) {
-          syncFromGoogleSheet(false);
+          syncFromGoogleSheet(false, false);
+          startAutoSyncLoop();
         } else {
           updateSyncBadge('local', 'Local Only (Setup Sync)');
         }
       } else {
+        stopAutoSyncLoop();
         loginScreen.classList.remove('hidden');
         appWrapper.classList.add('hidden');
         closeManageUsersModal();
@@ -466,6 +534,7 @@
     }
 
     function logoutUser() {
+      stopAutoSyncLoop();
       currentSession = null;
       localStorage.removeItem(STORAGE_KEY_SESSION);
       const passInput = document.getElementById('loginPassword');
@@ -726,7 +795,7 @@
 
       if (status === 'connected') {
         badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30';
-        badge.textContent = text || 'Google Sheet Live';
+        badge.textContent = text || 'Live Auto-Sync ON';
         if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
       } else if (status === 'syncing') {
         badge.className = 'text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-200 border border-blue-400/30 animate-pulse';
@@ -745,6 +814,7 @@
     function saveLocalCache() {
       localStorage.setItem(STORAGE_KEY_STOCK, JSON.stringify(stockConfig));
       localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(salesList));
+      localStorage.setItem(STORAGE_KEY_PURCHASES, JSON.stringify(stockPurchasesList));
       localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
       localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
     }
@@ -753,8 +823,9 @@
       saveLocalCache();
       if (!googleScriptUrl) return;
 
+      isSavingToCloud = true;
       try {
-        updateSyncBadge('syncing', 'Saving to Google Sheet...');
+        updateSyncBadge('syncing', 'Saving to Cloud...');
         await fetch(googleScriptUrl, {
           method: 'POST',
           mode: 'no-cors',
@@ -763,33 +834,40 @@
             action: 'syncAll',
             stockConfig: stockConfig,
             salesList: salesList,
+            stockPurchasesList: stockPurchasesList,
             storeConfig: storeConfig,
             authUsers: authUsers,
             updatedAt: new Date().toISOString()
           })
         });
-        updateSyncBadge('connected', 'Synced to Sheet');
+        updateSyncBadge('connected', 'Live Auto-Sync ON');
       } catch (err) {
         console.error('Save sync error:', err);
         updateSyncBadge('error', 'Offline / Sync Failed');
+      } finally {
+        setTimeout(() => { isSavingToCloud = false; }, 1500);
       }
     }
 
-    async function syncFromGoogleSheet(showToast = false) {
+    async function syncFromGoogleSheet(showToast = false, isSilentBackground = false) {
       if (!googleScriptUrl) {
         updateSyncBadge('local', 'Local Only (Setup Sync)');
         return;
       }
 
-      if (isSyncing) return;
+      if (isSyncing || isSavingToCloud) return;
       isSyncing = true;
-      updateSyncBadge('syncing', 'Loading Live Data...');
+      if (!isSilentBackground) {
+        updateSyncBadge('syncing', 'Loading Live Data...');
+      }
 
       try {
         const res = await fetch(googleScriptUrl + '?t=' + Date.now());
         const data = await res.json();
 
         if (data && data.status === 'ok') {
+          let changed = false;
+
           if (data.stockConfig && typeof data.stockConfig === 'object' && Object.keys(data.stockConfig).length > 0) {
             const normalized = {};
             Object.keys(data.stockConfig).forEach(cat => {
@@ -799,15 +877,34 @@
                 price: Number(item.price) || 0
               }));
             });
-            stockConfig = normalized;
+            if (JSON.stringify(normalized) !== JSON.stringify(stockConfig)) {
+              stockConfig = normalized;
+              changed = true;
+            }
           }
+
           if (Array.isArray(data.salesList)) {
-            salesList = data.salesList;
-            normalizeSalesList();
+            if (JSON.stringify(data.salesList) !== JSON.stringify(salesList)) {
+              salesList = data.salesList;
+              normalizeSalesList();
+              changed = true;
+            }
           }
+
+          if (Array.isArray(data.stockPurchasesList)) {
+            if (JSON.stringify(data.stockPurchasesList) !== JSON.stringify(stockPurchasesList)) {
+              stockPurchasesList = data.stockPurchasesList;
+              changed = true;
+            }
+          }
+
           if (data.storeConfig && data.storeConfig.storeName) {
-            storeConfig = data.storeConfig;
+            if (JSON.stringify(data.storeConfig) !== JSON.stringify(storeConfig)) {
+              storeConfig = data.storeConfig;
+              changed = true;
+            }
           }
+
           if (Array.isArray(data.authUsers) && data.authUsers.length > 0) {
             authUsers = data.authUsers;
             normalizeAuthUsers();
@@ -823,16 +920,22 @@
               }
             }
           }
+
           saveLocalCache();
-          renderContent();
-          updateSyncBadge('connected', 'Google Sheet Live');
+          if (changed || !isSilentBackground) {
+            renderContent();
+          }
+          const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          updateSyncBadge('connected', `Live Sync (${timeStr})`);
           if (showToast) alert('Google Sheet se latest data sync ho gaya!');
         } else {
-          updateSyncBadge('connected', 'Google Sheet Connected');
+          updateSyncBadge('connected', 'Live Auto-Sync ON');
         }
       } catch (err) {
         console.error('Fetch sync error:', err);
-        updateSyncBadge('error', 'Sync Connection Failed');
+        if (!isSilentBackground) {
+          updateSyncBadge('error', 'Sync Connection Failed');
+        }
         if (showToast) alert('Google Sheet se data load nahi ho paya.');
       } finally {
         isSyncing = false;
@@ -935,7 +1038,6 @@
       Object.keys(stockConfig).forEach(cat => {
         const m = calculateCategoryMetrics(cat);
         m.rows.forEach(r => {
-          // Alert if opening > 0 (active item) and available <= LOW_STOCK_THRESHOLD
           if (r.opening > 0 && r.available <= LOW_STOCK_THRESHOLD) {
             lowItems.push({ category: cat, size: r.size, available: r.available });
           }
@@ -978,7 +1080,6 @@
       let grandDueAmt = 0;
 
       const breakdownOpening = [];
-      const breakdownSold = [];
       const breakdownAvail = [];
 
       categories.forEach(cat => {
@@ -991,18 +1092,17 @@
         grandDueAmt += m.totalDueAmount;
 
         breakdownOpening.push(`${cat}: ${m.totalOpening}`);
-        breakdownSold.push(`${cat}: ${m.totalSold}`);
         breakdownAvail.push(`${cat}: ${m.totalAvailable}`);
       });
 
       const cardsHTML = `
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Opening Stock (${categories.length} Items)</p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Stock (${categories.length} Items)</p>
           <p class="text-2xl font-bold text-slate-900 mt-1">${grandOpening} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
           <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownOpening.join(' | ')}">${breakdownOpening.join(' | ') || 'No products'}</p>
         </div>
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Sold / Available</p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Available / Sold</p>
           <p class="text-2xl font-bold text-emerald-600 mt-1">${grandAvailable} <span class="text-xs font-semibold text-amber-600">(${grandSold} Sold)</span></p>
           <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownAvail.join(' | ')}">${breakdownAvail.join(' | ') || '0 available'}</p>
         </div>
@@ -1034,21 +1134,21 @@
       const catButtons = categories.map(cat => {
         const isActive = currentTab === cat;
         return `
-          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3 px-3.5 text-xs sm:text-sm transition ${isActive ? 'tab-active' : 'tab-inactive'}">
+          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3 px-3 text-xs sm:text-sm transition ${isActive ? 'tab-active' : 'tab-inactive'}">
             ${escapeHTML(cat)}
           </button>
         `;
       }).join('');
 
       const fixedRightTabs = [
+        { id: 'StockInward', label: '+ Stock Purchase' },
         { id: 'PendingDues', label: 'Pending Dues', count: pendingCount },
         { id: 'DailyClosing', label: 'Daily Closing' },
         { id: 'AddProduct', label: '+ Products' },
-        { id: 'Summary', label: 'Summary' },
-        { id: 'Receipt', label: 'A4 Receipt' }
+        { id: 'Summary', label: 'All Sales & Summary' },
+        { id: 'Receipt', label: 'A4 Receipt & PDF' }
       ];
 
-      // Hide Sync & Settings tab from non-Admin employees
       if (isAdminUser()) {
         fixedRightTabs.push({ id: 'SyncSetup', label: 'Settings', dot: true });
       }
@@ -1056,7 +1156,7 @@
       const leftHTML = fixedLeftTabs.map(t => {
         const isActive = currentTab === t.id;
         return `
-          <button onclick="switchTab('${t.id}')" class="py-3 px-3.5 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'}">
+          <button onclick="switchTab('${t.id}')" class="py-3 px-3 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'}">
             <span>${t.label}</span>
             ${t.badge ? `<span class="${t.badgeColor} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${t.badge}</span>` : ''}
           </button>
@@ -1066,7 +1166,7 @@
       const rightHTML = fixedRightTabs.map(t => {
         const isActive = currentTab === t.id;
         return `
-          <button onclick="switchTab('${t.id}')" class="py-3 px-3.5 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
+          <button onclick="switchTab('${t.id}')" class="py-3 px-3 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
             <span>${t.label}</span>
             ${t.count > 0 ? `<span class="bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">${t.count}</span>` : ''}
             ${t.dot ? `<span id="setupTabDot" class="w-2 h-2 rounded-full ${googleScriptUrl ? 'bg-emerald-500' : 'bg-amber-500'}"></span>` : ''}
@@ -1089,7 +1189,6 @@
     function openReceiptForSale(saleId) {
       const target = salesList.find(s => s.id === saleId);
       if (target && target.invoiceGroupId) {
-        // Select all items belonging to the same combined POS invoice
         selectedReceiptSaleIds = salesList
           .filter(s => s.invoiceGroupId === target.invoiceGroupId)
           .map(s => s.id);
@@ -1107,6 +1206,11 @@
 
       if (currentTab === 'QuickPOS') {
         renderQuickPOSTab(container);
+        return;
+      }
+
+      if (currentTab === 'StockInward') {
+        renderStockInwardTab(container);
         return;
       }
 
@@ -1174,7 +1278,7 @@
                   <thead class="bg-slate-800 text-white">
                     <tr>
                       <th class="px-4 py-3 text-left font-semibold">Category</th>
-                      <th class="px-4 py-3 text-center font-semibold">Opening</th>
+                      <th class="px-4 py-3 text-center font-semibold">Total Stock</th>
                       <th class="px-4 py-3 text-center font-semibold">Sold</th>
                       <th class="px-4 py-3 text-center font-semibold">Available</th>
                       <th class="px-4 py-3 text-right font-semibold">Stock Value</th>
@@ -1205,8 +1309,8 @@
             </div>
 
             <div>
-              <h2 class="text-lg font-bold text-slate-800 mb-3">All Recent Sales (All Products)</h2>
-              ${renderSalesTable(salesList, true)}
+              <h2 class="text-lg font-bold text-slate-800 mb-3">All Sales Register (Search by Name, Class &amp; Date)</h2>
+              ${renderSalesTable(salesList, true, true)}
             </div>
           </div>
         `;
@@ -1250,7 +1354,7 @@
               <input type="number" min="0" value="${r.opening}"
                 onchange="updateOpeningStock('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
                 class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
-                title="Admin: Edit Opening Stock" />
+                title="Admin: Edit Total Stock" />
             ` : `<span class="font-medium text-slate-700">${r.opening}</span>`}
           </td>
           <td class="px-3 py-2.5 text-center font-semibold text-amber-600">${r.sold}</td>
@@ -1261,13 +1365,14 @@
 
       container.innerHTML = `
         <div class="space-y-8">
-          <!-- Section 1: Live Stock Table -->
           <div>
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-1">
               <h2 class="text-lg font-bold text-slate-800">${escapeHTML(category)} Live Stock &amp; Price List</h2>
-              <span class="text-xs text-slate-500">
-                ${adminCanEdit ? 'Admin Mode: Unit Price ya Opening Stock edit kar sakte hain' : 'Staff Mode: Stock & Price locked (Sirf Admin edit kar sakta hai)'}
-              </span>
+              <div class="flex items-center gap-3">
+                <button type="button" onclick="switchTab('StockInward')" class="text-xs font-bold text-emerald-700 hover:underline">
+                  + Naya Maal (Stock Purchase) Add Karein &rarr;
+                </button>
+              </div>
             </div>
             <div class="overflow-x-auto border border-slate-200 rounded-lg">
               <table class="min-w-full divide-y divide-slate-200 text-sm">
@@ -1276,7 +1381,7 @@
                     <th class="px-3 py-3 text-center font-semibold">S. No.</th>
                     <th class="px-3 py-3 text-center font-semibold">Size</th>
                     <th class="px-3 py-3 text-center font-semibold">Unit Price (₹)</th>
-                    <th class="px-3 py-3 text-center font-semibold">Opening Stock</th>
+                    <th class="px-3 py-3 text-center font-semibold">Total Inward</th>
                     <th class="px-3 py-3 text-center font-semibold">Sold Qty</th>
                     <th class="px-3 py-3 text-center font-semibold">Available Stock</th>
                     <th class="px-3 py-3 text-right font-semibold">Stock Value (₹)</th>
@@ -1298,33 +1403,40 @@
             </div>
           </div>
 
-          <!-- Section 2: Quick Single-Item Sale Entry Form (With Discount & Partial Payment) -->
+          <!-- Quick Single-Item Sale Entry Form (With Class Dropdown) -->
           <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 sm:p-5">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
               <h3 class="text-base font-bold text-slate-900">New ${escapeHTML(category)} Sale Entry</h3>
               <button type="button" onclick="switchTab('QuickPOS')" class="text-xs font-bold text-blue-800 hover:underline">
-                Ek saath multiple items (Shirt + Coat + Sweater) bechne ke liye Quick POS kholein &rarr;
+                Multi-Item Bill (Sweater + Coat + Shirt ek saath) ke liye Quick POS kholein &rarr;
               </button>
             </div>
-            <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+            <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
                 <input type="date" id="saleDate" value="${getTodayDate()}" required
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Name) *</label>
-                <input type="text" id="saleSoldTo" placeholder="Customer / Student Name" required
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Student / Customer) *</label>
+                <input type="text" id="saleSoldTo" placeholder="Student / Customer Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Class *</label>
+                <select id="saleStudentClass"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-blue-800">
+                  ${getClassSelectOptionsHTML()}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Roll No. / Note (Optional)</label>
+                <input type="text" id="saleCustomerMeta" placeholder="e.g. Roll 12 / Sec-A"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile No. (For WhatsApp)</label>
                 <input type="tel" id="saleCustomerPhone" placeholder="e.g. 9876543210"
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Class / Roll / Note</label>
-                <input type="text" id="saleCustomerMeta" placeholder="e.g. Class 5-A / Roll 12"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
@@ -1359,13 +1471,13 @@
                   <option value="Due / Credit">Due / Credit</option>
                 </select>
               </div>
-              <div>
+              <div class="sm:col-span-2">
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Amount In Hand Of</label>
                 <input type="text" id="saleInHand" value="${escapeHTML(currentSession ? currentSession.displayName : '')}" placeholder="Cash Holder Name"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
 
-              <div class="sm:col-span-2 lg:col-span-5 flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-amber-200/80 mt-1">
+              <div class="sm:col-span-2 lg:col-span-4 flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-amber-200/80 mt-1">
                 <div class="text-xs text-slate-700 flex flex-wrap gap-3">
                   <span>Subtotal: <strong id="previewSubAmt">₹0</strong></span>
                   <span class="text-rose-600">Discount: <strong id="previewDiscAmt">-₹0</strong></span>
@@ -1386,10 +1498,9 @@
             </form>
           </div>
 
-          <!-- Section 3: Sales Register Table -->
           <div>
             <h3 class="text-lg font-bold text-slate-800 mb-3">${escapeHTML(category)} Sales Register</h3>
-            ${renderSalesTable(metrics.catSales, false)}
+            ${renderSalesTable(metrics.catSales, false, true)}
           </div>
         </div>
       `;
@@ -1398,10 +1509,198 @@
       updateFormPreview(category);
     }
 
+    // ==================== STOCK PURCHASE / NEW STOCK INWARD LOG TAB ====================
+    function renderStockInwardTab(container) {
+      const categories = Object.keys(stockConfig);
+      const catOptions = categories.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+      const adminCanDelete = isAdminUser();
+
+      const totalPurchasedPcs = stockPurchasesList.reduce((s, p) => s + Number(p.pieces), 0);
+
+      const historyRowsHTML = stockPurchasesList.length ? stockPurchasesList.slice().reverse().map((p, idx) => `
+        <tr class="hover:bg-slate-50">
+          <td class="px-3 py-2.5 text-center text-slate-500">${stockPurchasesList.length - idx}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${p.date}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(p.category)}</td>
+          <td class="px-3 py-2.5 text-center font-bold">${escapeHTML(p.size)}</td>
+          <td class="px-3 py-2.5 text-center font-extrabold text-emerald-700">+${p.pieces} Pcs</td>
+          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(p.supplier || '-')}</td>
+          <td class="px-3 py-2.5 text-slate-600 text-xs">${escapeHTML(p.billNote || '-')}</td>
+          <td class="px-3 py-2.5 text-slate-600 text-xs">${escapeHTML(p.addedBy || '-')}</td>
+          <td class="px-3 py-2.5 text-center">
+            ${adminCanDelete ? `
+              <button onclick="deleteStockPurchaseEntry('${p.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
+                Undo / Delete
+              </button>
+            ` : `<span class="text-[11px] text-slate-400">Logged</span>`}
+          </td>
+        </tr>
+      `).join('') : `
+        <tr>
+          <td colspan="9" class="py-8 text-center text-xs text-slate-500">
+            Abhi tak koi Stock Purchase entry record nahi hui hai. Upar form se naya maal (Stock Inward) add karein.
+          </td>
+        </tr>
+      `;
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+              <div>
+                <h2 class="text-lg font-bold text-slate-900">+ Add Stock Purchase / Naya Maal Inward Entry</h2>
+                <p class="text-xs text-slate-600 mt-0.5">
+                  Jab factory ya supplier se naya maal aaye, yahan entry karein — stock automatic badh jayega aur poora record save rahega.
+                </p>
+              </div>
+              <span class="text-xs font-bold bg-emerald-100 text-emerald-900 px-3 py-1 rounded-full self-start">
+                Total Added via Inward: ${totalPurchasedPcs} Pcs
+              </span>
+            </div>
+
+            <form onsubmit="handleAddStockPurchase(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
+                <input type="date" id="inwardDate" value="${getTodayDate()}" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Product Category *</label>
+                <select id="inwardCategory" onchange="updateInwardSizeOptions()" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-emerald-700">
+                  ${catOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Size *</label>
+                <select id="inwardSize" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700">
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity Received (Pcs) *</label>
+                <input type="number" id="inwardPieces" min="1" value="10" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Supplier / Party Name</label>
+                <input type="text" id="inwardSupplier" placeholder="e.g. Ludhiana Knitwear"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Challan / Bill No. / Note</label>
+                <input type="text" id="inwardNote" placeholder="e.g. Bill #402"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div class="sm:col-span-2 lg:col-span-6 flex justify-end pt-2 border-t border-emerald-200/80">
+                <button type="submit"
+                  class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm px-6 py-2.5 rounded-lg shadow transition">
+                  + Add Stock &amp; Save Inward Log
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div>
+            <h3 class="text-lg font-bold text-slate-800 mb-3">Stock Purchase / Inward History (${stockPurchasesList.length} Entries)</h3>
+            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-3 text-center font-semibold">#</th>
+                    <th class="px-3 py-3 text-center font-semibold">Date</th>
+                    <th class="px-3 py-3 text-left font-semibold">Product</th>
+                    <th class="px-3 py-3 text-center font-semibold">Size</th>
+                    <th class="px-3 py-3 text-center font-semibold">Added Qty</th>
+                    <th class="px-3 py-3 text-left font-semibold">Supplier</th>
+                    <th class="px-3 py-3 text-left font-semibold">Challan / Note</th>
+                    <th class="px-3 py-3 text-left font-semibold">Added By</th>
+                    <th class="px-3 py-3 text-center font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">
+                  ${historyRowsHTML}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      updateInwardSizeOptions();
+    }
+
+    function updateInwardSizeOptions() {
+      const catEl = document.getElementById('inwardCategory');
+      const sizeEl = document.getElementById('inwardSize');
+      if (!catEl || !sizeEl) return;
+
+      const cat = catEl.value;
+      const items = stockConfig[cat] || [];
+      sizeEl.innerHTML = items.map(item =>
+        `<option value="${escapeHTML(item.size)}">Size ${escapeHTML(item.size)} (Current Total: ${item.opening})</option>`
+      ).join('');
+    }
+
+    function handleAddStockPurchase(e) {
+      e.preventDefault();
+      const date = document.getElementById('inwardDate').value;
+      const category = document.getElementById('inwardCategory').value;
+      const size = String(document.getElementById('inwardSize').value);
+      const pieces = Math.max(1, Number(document.getElementById('inwardPieces').value) || 0);
+      const supplier = document.getElementById('inwardSupplier').value.trim();
+      const billNote = document.getElementById('inwardNote').value.trim();
+      const addedBy = currentSession ? currentSession.displayName : 'Admin';
+
+      const stockItem = (stockConfig[category] || []).find(i => String(i.size) === size);
+      if (!stockItem) {
+        alert('Selected size nahi mila.');
+        return;
+      }
+
+      stockItem.opening = Number(stockItem.opening) + pieces;
+
+      stockPurchasesList.push({
+        id: 'PUR-' + Date.now(),
+        date,
+        category,
+        size,
+        pieces,
+        supplier,
+        billNote,
+        addedBy
+      });
+
+      saveDataAndSync();
+      renderContent();
+      alert(`+${pieces} Pcs (${category} - Size ${size}) stock mein jud gaya hai aur log save ho gaya!`);
+    }
+
+    function deleteStockPurchaseEntry(purId) {
+      if (!isAdminUser()) {
+        alert('Sirf Admin hi inward entry undo kar sakta hai.');
+        return;
+      }
+      const entry = stockPurchasesList.find(p => p.id === purId);
+      if (!entry) return;
+
+      if (!confirm(`Kya aap is inward entry (+${entry.pieces} Pcs ${entry.category} Size ${entry.size}) ko undo karna chahte hain? Stock se ${entry.pieces} Pcs kam ho jayenge.`)) {
+        return;
+      }
+
+      const stockItem = (stockConfig[entry.category] || []).find(i => String(i.size) === String(entry.size));
+      if (stockItem) {
+        stockItem.opening = Math.max(0, Number(stockItem.opening) - Number(entry.pieces));
+      }
+
+      stockPurchasesList = stockPurchasesList.filter(p => p.id !== purId);
+      saveDataAndSync();
+      renderContent();
+    }
+
     // ==================== QUICK POS / MULTI-ITEM CART TAB ====================
     function renderQuickPOSTab(container) {
       const categories = Object.keys(stockConfig);
-      const firstCat = categories[0] || '';
       const catOptions = categories.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
 
       const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
@@ -1424,18 +1723,17 @@
       `).join('') : `
         <tr>
           <td colspan="7" class="py-8 text-center text-xs text-slate-500">
-            Cart khali hai. Upar se items (jaise Sweater, Coat, Shirt) chunein aur <strong>+ Add to Bill Cart</strong> dabayein.
+            Cart khali hai. Upar se items (jaise Sweater, Coat, Shirt) chunein aur <strong>+ Add to Cart</strong> dabayein.
           </td>
         </tr>
       `;
 
       container.innerHTML = `
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <!-- Left: Item Picker & Cart -->
           <div class="lg:col-span-7 space-y-5">
             <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
-                <h2 class="text-base font-bold text-blue-950">Step 1: Add Items to Customer Bill</h2>
+                <h2 class="text-base font-bold text-blue-950">Step 1: Add Items to Student / Customer Bill</h2>
                 <span class="text-xs font-semibold text-blue-800">Multi-Item POS</span>
               </div>
 
@@ -1467,7 +1765,6 @@
               </div>
             </div>
 
-            <!-- Cart Table -->
             <div class="border border-slate-200 rounded-xl overflow-hidden">
               <div class="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between text-xs font-bold">
                 <span>Selected Items in Current Bill (${posCartItems.length} Lines / ${cartTotalPcs} Pcs)</span>
@@ -1501,9 +1798,8 @@
             </div>
           </div>
 
-          <!-- Right: Customer & Checkout Details -->
           <form onsubmit="completePosCheckout(event)" class="lg:col-span-5 bg-amber-50/70 border border-amber-200 rounded-xl p-4 sm:p-5 space-y-3.5">
-            <h2 class="text-base font-bold text-slate-900">Step 2: Customer, Discount &amp; Payment</h2>
+            <h2 class="text-base font-bold text-slate-900">Step 2: Student / Customer &amp; Payment</h2>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
@@ -1512,18 +1808,25 @@
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Customer / Student Name *</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Student / Customer Name *</label>
                 <input type="text" id="posSoldTo" placeholder="Enter Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Class *</label>
+                <select id="posStudentClass"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-blue-800">
+                  ${getClassSelectOptionsHTML()}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Roll No. / Note (Optional)</label>
+                <input type="text" id="posCustomerMeta" placeholder="e.g. Roll 14 / Sec-B"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile No. (WhatsApp)</label>
                 <input type="tel" id="posCustomerPhone" placeholder="e.g. 9876543210"
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Class / Roll / Note</label>
-                <input type="text" id="posCustomerMeta" placeholder="e.g. Class 6-B"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
@@ -1546,14 +1849,13 @@
                   <option value="Due / Credit">Due / Credit</option>
                 </select>
               </div>
-              <div>
+              <div class="sm:col-span-2">
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Amount In Hand Of</label>
                 <input type="text" id="posInHand" value="${escapeHTML(currentSession ? currentSession.displayName : '')}"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
             </div>
 
-            <!-- Summary Box -->
             <div class="bg-white border border-slate-300 rounded-xl p-3.5 space-y-1.5 text-xs">
               <div class="flex justify-between text-slate-600">
                 <span>Cart Subtotal:</span>
@@ -1681,6 +1983,7 @@
 
       const date = document.getElementById('posDate').value;
       const soldTo = document.getElementById('posSoldTo').value.trim();
+      const studentClass = document.getElementById('posStudentClass').value;
       const customerPhone = document.getElementById('posCustomerPhone').value.trim();
       const customerMeta = document.getElementById('posCustomerMeta').value.trim();
       const paymentMode = document.getElementById('posPaymentMode').value;
@@ -1696,7 +1999,6 @@
       const invoiceGroupId = 'GRP-' + Date.now();
       const createdIds = [];
 
-      // Distribute discount & paid amount proportionally across cart items
       let remainingDisc = totalDiscount;
       let remainingPaid = totalPaid;
 
@@ -1728,6 +2030,7 @@
           invoiceGroupId,
           date,
           soldTo,
+          studentClass,
           customerPhone,
           customerMeta,
           category: item.category,
@@ -1777,6 +2080,7 @@
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
           <td class="px-3 py-2.5 font-bold text-slate-900">
             ${escapeHTML(r.soldTo)}
+            ${r.studentClass ? `<span class="ml-1.5 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(r.studentClass)}</span>` : ''}
             ${r.customerPhone ? `<div class="text-xs font-normal text-blue-800">Ph: ${escapeHTML(r.customerPhone)}</div>` : ''}
             ${r.customerMeta ? `<div class="text-xs font-normal text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
           </td>
@@ -1815,7 +2119,7 @@
               <thead class="bg-slate-800 text-white">
                 <tr>
                   <th class="px-3 py-3 text-center font-semibold">Date</th>
-                  <th class="px-3 py-3 text-left font-semibold">Customer Details</th>
+                  <th class="px-3 py-3 text-left font-semibold">Student / Customer</th>
                   <th class="px-3 py-3 text-center font-semibold">Item &amp; Qty</th>
                   <th class="px-3 py-3 text-right font-semibold">Net Bill</th>
                   <th class="px-3 py-3 text-right font-semibold">Paid</th>
@@ -1837,7 +2141,7 @@
       const body = document.getElementById('collectDueModalBody');
       body.innerHTML = `
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
-          <p>Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong></p>
+          <p>Student / Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong> ${sale.studentClass ? `(${escapeHTML(sale.studentClass)})` : ''}</p>
           <p>Item: <strong>${escapeHTML(sale.category)} (Size ${escapeHTML(sale.size)}) &times; ${sale.pieces}</strong></p>
           <p>Total Bill: <strong>${formatINR(sale.amount)}</strong> | Already Paid: <strong class="text-emerald-700">${formatINR(sale.paidAmount)}</strong></p>
           <p class="text-sm text-rose-600 font-bold pt-1">Remaining Due: ${formatINR(sale.dueAmount)}</p>
@@ -1913,7 +2217,7 @@
       const body = document.getElementById('exchangeModalBody');
       body.innerHTML = `
         <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs space-y-1">
-          <p>Customer: <strong>${escapeHTML(sale.soldTo)}</strong></p>
+          <p>Student / Customer: <strong>${escapeHTML(sale.soldTo)}</strong> ${sale.studentClass ? `(${escapeHTML(sale.studentClass)})` : ''}</p>
           <p>Current Item: <strong>${escapeHTML(sale.category)} — Size ${escapeHTML(sale.size)} (${sale.pieces} Pcs)</strong></p>
           <p class="text-slate-600">Size badalne par purana size stock mein wapas jud jayega aur naya size stock se minus ho jayega.</p>
         </div>
@@ -2030,7 +2334,6 @@
             </div>
           </div>
 
-          <!-- Daily Summary Strip -->
           <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
             <div class="bg-white border border-slate-200 rounded-xl p-3.5">
               <p class="text-[11px] font-bold uppercase text-slate-500">Pieces Sold</p>
@@ -2055,7 +2358,6 @@
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <!-- Payment Mode Breakdown -->
             <div class="border border-slate-200 rounded-xl overflow-hidden">
               <div class="bg-slate-800 text-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider">
                 Collection by Payment Mode (${formatDateReadable(closingFilterDate)})
@@ -2071,7 +2373,6 @@
               </table>
             </div>
 
-            <!-- Staff Cash Handover Breakdown -->
             <div class="border border-slate-200 rounded-xl overflow-hidden">
               <div class="bg-blue-950 text-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider">
                 Amount In Hand Of (Staff Handover Summary)
@@ -2090,7 +2391,7 @@
 
           <div>
             <h3 class="text-base font-bold text-slate-800 mb-3">Sales Entries on ${formatDateReadable(closingFilterDate)} (${daySales.length})</h3>
-            ${renderSalesTable(daySales, true)}
+            ${renderSalesTable(daySales, true, false)}
           </div>
         </div>
       `;
@@ -2200,7 +2501,7 @@
                     <th class="px-3 py-3 text-center font-semibold">S.No</th>
                     <th class="px-3 py-3 text-left font-semibold">Product Type</th>
                     <th class="px-3 py-3 text-center font-semibold">Size</th>
-                    <th class="px-3 py-3 text-center font-semibold">Opening Stock</th>
+                    <th class="px-3 py-3 text-center font-semibold">Total Inward</th>
                     <th class="px-3 py-3 text-center font-semibold">Sold</th>
                     <th class="px-3 py-3 text-center font-semibold">Available</th>
                     <th class="px-3 py-3 text-right font-semibold">Price (₹)</th>
@@ -2275,11 +2576,102 @@
       renderContent();
     }
 
-    // ==================== SALES REGISTER TABLE (WITH EXCHANGE & ROLE LOCK) ====================
-    function renderSalesTable(records, showCategoryCol) {
+    // ==================== SALES REGISTER TABLE (WITH CLASS FILTER, SEARCH & DATE FILTER) ====================
+    function filterSalesRecords(records, enableFilters) {
+      let filtered = records.slice();
+      if (!enableFilters) return filtered;
+
+      if (salesFilterSearch.trim()) {
+        const q = salesFilterSearch.trim().toLowerCase();
+        filtered = filtered.filter(r =>
+          String(r.soldTo || '').toLowerCase().includes(q) ||
+          String(r.studentClass || '').toLowerCase().includes(q) ||
+          String(r.customerPhone || '').toLowerCase().includes(q) ||
+          String(r.customerMeta || '').toLowerCase().includes(q) ||
+          String(r.category || '').toLowerCase().includes(q)
+        );
+      }
+      if (salesFilterClass) {
+        filtered = filtered.filter(r => String(r.studentClass || '') === salesFilterClass);
+      }
+      if (salesFilterFrom) {
+        filtered = filtered.filter(r => r.date >= salesFilterFrom);
+      }
+      if (salesFilterTo) {
+        filtered = filtered.filter(r => r.date <= salesFilterTo);
+      }
+      return filtered;
+    }
+
+    function renderSalesTable(records, showCategoryCol, enableFilters = true) {
+      const filtered = filterSalesRecords(records, enableFilters);
+
+      const classFilterOpts = `<option value="">All Classes</option>` +
+        SCHOOL_CLASSES.map(c => `<option value="${escapeHTML(c)}" ${salesFilterClass === c ? 'selected' : ''}>${escapeHTML(c)}</option>`).join('');
+
+      const filterBarHTML = enableFilters ? `
+        <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-end">
+          <div class="flex-1">
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">Search Student / Mobile / Roll</label>
+            <input type="text" id="salesSearchInput" value="${escapeHTML(salesFilterSearch)}"
+              oninput="salesFilterSearch = this.value; updateFilteredSalesBody(${showCategoryCol});"
+              placeholder="Type name, mobile number, or roll..."
+              class="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-blue-900 mb-1">Filter by Class</label>
+            <select onchange="salesFilterClass = this.value; renderContent();"
+              class="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-blue-800">
+              ${classFilterOpts}
+            </select>
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">From Date</label>
+            <input type="date" value="${salesFilterFrom}"
+              onchange="salesFilterFrom = this.value; renderContent();"
+              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+          </div>
+          <div>
+            <label class="block text-[11px] font-bold text-slate-600 mb-1">To Date</label>
+            <input type="date" value="${salesFilterTo}"
+              onchange="salesFilterTo = this.value; renderContent();"
+              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+          </div>
+          ${(salesFilterSearch || salesFilterClass || salesFilterFrom || salesFilterTo) ? `
+            <button type="button" onclick="salesFilterSearch=''; salesFilterClass=''; salesFilterFrom=''; salesFilterTo=''; renderContent();"
+              class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg">
+              Clear
+            </button>
+          ` : ''}
+        </div>
+      ` : '';
+
+      const tableContentHTML = buildSalesTableInnerHTML(filtered, showCategoryCol);
+
+      return `
+        ${filterBarHTML}
+        <div id="salesTableContainer">
+          ${tableContentHTML}
+        </div>
+      `;
+    }
+
+    function updateFilteredSalesBody(showCategoryCol) {
+      let baseRecords = salesList;
+      if (currentTab !== 'Summary' && stockConfig[currentTab]) {
+        baseRecords = salesList.filter(s => s.category === currentTab);
+      }
+      const filtered = filterSalesRecords(baseRecords, true);
+      const target = document.getElementById('salesTableContainer');
+      if (target) {
+        target.innerHTML = buildSalesTableInnerHTML(filtered, showCategoryCol);
+      }
+    }
+
+    function buildSalesTableInnerHTML(records, showCategoryCol) {
       if (!records.length) {
         return `<div class="text-center py-8 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500">
-          Abhi tak koi sale entry nahi hui hai.
+          Koi matching sale entry nahi mili.
         </div>`;
       }
 
@@ -2299,6 +2691,7 @@
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
           <td class="px-3 py-2.5 font-medium text-slate-900">
             ${escapeHTML(r.soldTo)}
+            ${r.studentClass ? `<span class="ml-1 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(r.studentClass)}</span>` : ''}
             ${r.customerPhone ? `<div class="text-[11px] text-blue-700">${escapeHTML(r.customerPhone)}</div>` : ''}
             ${r.customerMeta ? `<div class="text-[11px] text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
           </td>
@@ -2335,7 +2728,7 @@
             <thead class="bg-slate-800 text-white">
               <tr>
                 <th class="px-3 py-3 text-center font-semibold">Date</th>
-                <th class="px-3 py-3 text-left font-semibold">Sold To</th>
+                <th class="px-3 py-3 text-left font-semibold">Student / Sold To</th>
                 ${showCategoryCol ? `<th class="px-3 py-3 text-center font-semibold">Item</th>` : ''}
                 <th class="px-3 py-3 text-center font-semibold">Size</th>
                 <th class="px-3 py-3 text-center font-semibold">Pcs</th>
@@ -2355,7 +2748,7 @@
             </tbody>
             <tfoot class="bg-slate-200 font-bold text-slate-900">
               <tr>
-                <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total</td>
+                <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total (${records.length} Bills)</td>
                 <td class="px-3 py-3 text-center">${totalPcs}</td>
                 <td></td>
                 <td class="px-3 py-3 text-center text-rose-700">-${formatINR(totalDisc)}</td>
@@ -2395,7 +2788,7 @@ function doPost(e) {
   var payload = JSON.parse(e.postData.contents);
   payload.status = 'ok';
 
-  // 1. Save full JSON state (Products, Stock, Sales, Users) for multi-device sync
+  // 1. Save full JSON state (Products, Stock, Inward, Sales, Users) for multi-device sync
   var dbSheet = ss.getSheetByName('DB_JSON');
   if (!dbSheet) {
     dbSheet = ss.insertSheet('DB_JSON');
@@ -2408,14 +2801,14 @@ function doPost(e) {
     salesSheet = ss.insertSheet('Sales_Register');
   }
   salesSheet.clear();
-  var headers = ['Date', 'Sold To', 'Mobile', 'Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+  var headers = ['Date', 'Sold To', 'Class', 'Mobile', 'Roll/Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
   salesSheet.appendRow(headers);
   salesSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
 
   if (payload.salesList && payload.salesList.length > 0) {
     var rows = payload.salesList.map(function(r) {
       var sub = Number(r.pieces) * Number(r.rate);
-      return [r.date, r.soldTo, r.customerPhone || '', r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paidAmount || 0, r.dueAmount || 0, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
+      return [r.date, r.soldTo, r.studentClass || '', r.customerPhone || '', r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paidAmount || 0, r.dueAmount || 0, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
     });
     salesSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
@@ -2437,7 +2830,7 @@ function doPost(e) {
           </div>
 
           <div class="bg-white border border-slate-300 rounded-xl p-5 space-y-3 shadow-sm">
-            <label class="block text-sm font-bold text-slate-900">Google Apps Script Web App URL (Live Cloud Sync)</label>
+            <label class="block text-sm font-bold text-slate-900">Google Apps Script Web App URL (20s Auto-Sync)</label>
             <div class="flex flex-col sm:flex-row gap-2">
               <input type="url" id="gsheetUrlInput" value="${escapeHTML(googleScriptUrl)}"
                 placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
@@ -2447,14 +2840,11 @@ function doPost(e) {
                 Save &amp; Sync Now
               </button>
             </div>
-            <p class="text-xs text-slate-500">
-              Aapka Google Apps Script URL pehle se is file mein connected hai.
-            </p>
           </div>
 
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3 text-sm text-slate-800">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Updated Google Apps Script Code (With Dues &amp; Phone Column)</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Google Apps Script Code (With Class Column)</span>
               <button onclick="copyAppsScriptCode()" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded font-semibold">
                 Copy Code
               </button>
@@ -2490,6 +2880,7 @@ function doPost(e) {
       if (!url) {
         googleScriptUrl = '';
         localStorage.removeItem(STORAGE_KEY_SCRIPT_URL);
+        stopAutoSyncLoop();
         updateSyncBadge('local', 'Local Only');
         alert('Google Sheet URL hata diya gaya hai.');
         return;
@@ -2501,6 +2892,7 @@ function doPost(e) {
 
       googleScriptUrl = url;
       localStorage.setItem(STORAGE_KEY_SCRIPT_URL, url);
+      startAutoSyncLoop();
 
       updateSyncBadge('syncing', 'Connecting...');
       try {
@@ -2509,6 +2901,7 @@ function doPost(e) {
         if (data && data.status === 'ok' && ((Array.isArray(data.salesList) && data.salesList.length > 0) || data.stockConfig)) {
           stockConfig = data.stockConfig || stockConfig;
           salesList = data.salesList || salesList;
+          stockPurchasesList = data.stockPurchasesList || stockPurchasesList;
           normalizeSalesList();
           storeConfig = data.storeConfig || storeConfig;
           if (Array.isArray(data.authUsers) && data.authUsers.length > 0) {
@@ -2517,7 +2910,7 @@ function doPost(e) {
           }
           saveLocalCache();
           renderContent();
-          updateSyncBadge('connected', 'Google Sheet Live');
+          updateSyncBadge('connected', 'Live Auto-Sync ON');
           alert('Connected! Google Sheet ka data load ho gaya hai.');
         } else {
           await saveDataAndSync();
@@ -2529,13 +2922,53 @@ function doPost(e) {
       }
     }
 
-    // ==================== A4 PDF RECEIPT + WHATSAPP SHARE TAB ====================
+    // ==================== A4 PDF RECEIPT + LOGO + UPI QR + WHATSAPP PDF SHARE ====================
+    function handleReceiptImageUpload(event, targetKey) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxDim = targetKey === 'logoDataUrl' ? 180 : 200;
+          let w = img.width;
+          let h = img.height;
+          if (w > h && w > maxDim) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else if (h > maxDim) {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          const compressedDataUrl = canvas.toDataURL('image/png', 0.85);
+
+          storeConfig[targetKey] = compressedDataUrl;
+          saveDataAndSync();
+          renderContent();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function removeReceiptImage(targetKey) {
+      storeConfig[targetKey] = '';
+      saveDataAndSync();
+      renderContent();
+    }
+
     function renderReceiptTab(container) {
       if (!salesList.length) {
         container.innerHTML = `
           <div class="text-center py-12 bg-slate-50 border border-dashed border-slate-300 rounded-xl">
             <p class="text-base font-semibold text-slate-700">Abhi tak koi sale entry nahi hai!</p>
-            <p class="text-sm text-slate-500 mt-1">Pehle Quick POS ya kisi product tab se sale add karein, uske baad yahan A4 PDF receipt aur WhatsApp slip banegi.</p>
+            <p class="text-sm text-slate-500 mt-1">Pehle Quick POS ya kisi product tab se sale add karein, uske baad yahan A4 PDF receipt aur WhatsApp PDF share banegi.</p>
           </div>
         `;
         return;
@@ -2571,7 +3004,7 @@ function doPost(e) {
               class="mt-1 rounded text-blue-900 focus:ring-blue-800" />
             <div class="flex-1 text-xs">
               <div class="flex justify-between font-bold text-slate-900">
-                <span>${escapeHTML(s.soldTo)}</span>
+                <span>${escapeHTML(s.soldTo)} ${s.studentClass ? `(${escapeHTML(s.studentClass)})` : ''}</span>
                 <span class="text-blue-900">${formatINR(s.amount)}</span>
               </div>
               <div class="text-slate-600 mt-0.5">
@@ -2589,38 +3022,39 @@ function doPost(e) {
         const lineDisc = Number(item.discount || 0);
         return `
         <tr class="border-b border-slate-300">
-          <td class="py-2.5 px-3 text-center text-slate-700">${idx + 1}</td>
-          <td class="py-2.5 px-3 font-semibold text-slate-900">
+          <td class="py-2 px-3 text-center text-slate-700">${idx + 1}</td>
+          <td class="py-2 px-3 font-semibold text-slate-900">
             ${escapeHTML(item.category)}
             <div class="text-[11px] font-normal text-slate-500">
               Date: ${formatDateReadable(item.date)}${lineDisc > 0 ? ` &bull; Discount: -${formatINR(lineDisc)}` : ''}
             </div>
           </td>
-          <td class="py-2.5 px-3 text-center font-bold text-slate-800">${escapeHTML(item.size)}</td>
-          <td class="py-2.5 px-3 text-center font-semibold text-slate-800">${item.pieces}</td>
-          <td class="py-2.5 px-3 text-right text-slate-800">${formatINR(item.rate)}</td>
-          <td class="py-2.5 px-3 text-right font-bold text-slate-900">${formatINR(lineSub)}</td>
+          <td class="py-2 px-3 text-center font-bold text-slate-800">${escapeHTML(item.size)}</td>
+          <td class="py-2 px-3 text-center font-semibold text-slate-800">${item.pieces}</td>
+          <td class="py-2 px-3 text-right text-slate-800">${formatINR(item.rate)}</td>
+          <td class="py-2 px-3 text-right font-bold text-slate-900">${formatINR(lineSub)}</td>
         </tr>
       `}).join('');
 
-      const fillerCount = Math.max(0, 4 - selectedSales.length);
+      const fillerCount = Math.max(0, 3 - selectedSales.length);
       const fillerRowsHTML = Array(fillerCount).fill(`
         <tr class="border-b border-slate-200">
-          <td class="py-3 px-3">&nbsp;</td>
-          <td class="py-3 px-3"></td>
-          <td class="py-3 px-3"></td>
-          <td class="py-3 px-3"></td>
-          <td class="py-3 px-3"></td>
-          <td class="py-3 px-3"></td>
+          <td class="py-2.5 px-3">&nbsp;</td>
+          <td class="py-2.5 px-3"></td>
+          <td class="py-2.5 px-3"></td>
+          <td class="py-2.5 px-3"></td>
+          <td class="py-2.5 px-3"></td>
+          <td class="py-2.5 px-3"></td>
         </tr>
       `).join('');
 
       container.innerHTML = `
         <div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
           <div class="xl:col-span-4 space-y-5">
+            <!-- 1. Header, Logo & UPI QR Settings -->
             <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-bold text-slate-900">1. Receipt Header / Shop Details</h3>
+                <h3 class="text-sm font-bold text-slate-900">1. Receipt Header, Logo &amp; UPI QR</h3>
                 <span class="text-[11px] text-emerald-700 font-medium">Auto-Saves</span>
               </div>
               <div>
@@ -2650,6 +3084,28 @@ function doPost(e) {
                 </div>
               </div>
               <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">UPI ID (Optional, Receipt par dikhega)</label>
+                <input type="text" value="${escapeHTML(storeConfig.upiId || '')}" placeholder="e.g. yourshop@upi"
+                  oninput="updateStoreConfig('upiId', this.value)"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <div class="bg-white border border-slate-200 rounded-lg p-2">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">Shop/School Logo</label>
+                  <input type="file" accept="image/*" onchange="handleReceiptImageUpload(event, 'logoDataUrl')"
+                    class="w-full text-[10px] text-slate-600" />
+                  ${storeConfig.logoDataUrl ? `<button type="button" onclick="removeReceiptImage('logoDataUrl')" class="text-[10px] text-rose-600 font-bold mt-1 underline">Remove Logo</button>` : ''}
+                </div>
+                <div class="bg-white border border-slate-200 rounded-lg p-2">
+                  <label class="block text-[11px] font-bold text-slate-700 mb-1">UPI Payment QR</label>
+                  <input type="file" accept="image/*" onchange="handleReceiptImageUpload(event, 'qrDataUrl')"
+                    class="w-full text-[10px] text-slate-600" />
+                  ${storeConfig.qrDataUrl ? `<button type="button" onclick="removeReceiptImage('qrDataUrl')" class="text-[10px] text-rose-600 font-bold mt-1 underline">Remove QR</button>` : ''}
+                </div>
+              </div>
+
+              <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Footer Note / Terms</label>
                 <input type="text" value="${escapeHTML(storeConfig.footerNote)}"
                   oninput="updateStoreConfig('footerNote', this.value)"
@@ -2657,33 +3113,40 @@ function doPost(e) {
               </div>
             </div>
 
+            <!-- 2. Select Sale Entries -->
             <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
                 <h3 class="text-sm font-bold text-slate-900">2. Select Sale Entries</h3>
                 <span class="text-xs font-semibold text-blue-900">${selectedSales.length} Selected</span>
               </div>
-              <div class="max-h-60 overflow-y-auto space-y-2 pr-1">
+              <div class="max-h-52 overflow-y-auto space-y-2 pr-1">
                 ${salesCheckboxRows}
               </div>
             </div>
 
+            <!-- 3. Download, Print & WhatsApp PDF Share -->
             <div class="bg-blue-950 text-white rounded-xl p-4 space-y-2.5 shadow">
-              <h3 class="text-sm font-bold">3. Download, Print &amp; WhatsApp</h3>
-              <button onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
+              <h3 class="text-sm font-bold">3. Share PDF on WhatsApp / Download</h3>
+              <button type="button" id="btnShareWhatsappPdf" onclick="shareReceiptPDFOnWhatsApp('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
+                class="w-full bg-green-600 hover:bg-green-500 text-white font-bold text-sm py-3 px-4 rounded-lg shadow transition flex items-center justify-center gap-2">
+                <span>Share A4 PDF on WhatsApp</span>
+              </button>
+              <button type="button" onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
                 class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
-                Download A4 PDF Receipt
+                Download A4 PDF File
               </button>
-              <button onclick="sendReceiptOnWhatsApp('${receiptNo}')"
-                class="w-full bg-green-600 hover:bg-green-500 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
-                Send Receipt on WhatsApp
+              <button type="button" onclick="sendReceiptTextOnWhatsApp('${receiptNo}')"
+                class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-xs py-2 px-4 rounded-lg transition">
+                Send Text Summary Only (WhatsApp)
               </button>
-              <button onclick="window.print()"
-                class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-sm py-2 px-4 rounded-lg transition">
+              <button type="button" onclick="window.print()"
+                class="w-full bg-white/10 hover:bg-white/20 text-white font-semibold text-xs py-2 px-4 rounded-lg transition">
                 Direct Print (A4 Page)
               </button>
             </div>
           </div>
 
+          <!-- Right A4 Preview -->
           <div class="xl:col-span-8 bg-slate-200/80 p-3 sm:p-6 rounded-xl border border-slate-300 overflow-x-auto">
             <div class="text-center text-xs font-semibold text-slate-600 mb-3">
               A4 Size Live Receipt Preview (210mm &times; 297mm)
@@ -2692,10 +3155,13 @@ function doPost(e) {
             <div id="receiptPrintArea" class="a4-sheet shadow-xl border border-slate-300 flex flex-col justify-between">
               <div>
                 <div class="border-b-2 border-slate-900 pb-4 flex justify-between items-start gap-4">
-                  <div>
-                    <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 uppercase">${escapeHTML(storeConfig.storeName)}</h1>
-                    <p class="text-xs font-medium text-slate-600 mt-0.5">${escapeHTML(storeConfig.storeSubtitle)}</p>
-                    <p class="text-xs text-slate-600 mt-1">${escapeHTML(storeConfig.storeAddress)} &bull; Ph: ${escapeHTML(storeConfig.storePhone)}</p>
+                  <div class="flex items-start gap-3.5">
+                    ${storeConfig.logoDataUrl ? `<img src="${storeConfig.logoDataUrl}" alt="Logo" class="w-16 h-16 object-contain rounded border border-slate-200 p-1 shrink-0" />` : ''}
+                    <div>
+                      <h1 class="text-2xl font-extrabold tracking-tight text-slate-900 uppercase">${escapeHTML(storeConfig.storeName)}</h1>
+                      <p class="text-xs font-medium text-slate-600 mt-0.5">${escapeHTML(storeConfig.storeSubtitle)}</p>
+                      <p class="text-xs text-slate-600 mt-1">${escapeHTML(storeConfig.storeAddress)} &bull; Ph: ${escapeHTML(storeConfig.storePhone)}</p>
+                    </div>
                   </div>
                   <div class="text-right shrink-0">
                     <span class="inline-block bg-slate-900 text-white text-xs font-bold uppercase tracking-widest px-3 py-1 rounded">
@@ -2706,12 +3172,12 @@ function doPost(e) {
                   </div>
                 </div>
 
-                <div class="grid grid-cols-2 gap-4 my-5 bg-slate-50 border border-slate-300 rounded-lg p-3.5 text-xs">
+                <div class="grid grid-cols-2 gap-4 my-4 bg-slate-50 border border-slate-300 rounded-lg p-3.5 text-xs">
                   <div class="space-y-1">
-                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Billed To (Customer Details)</p>
+                    <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Billed To (Student / Customer Details)</p>
                     <p class="text-sm font-bold text-slate-900">${escapeHTML(primarySale.soldTo)}</p>
+                    ${primarySale.studentClass ? `<p class="text-slate-700">Class: <strong>${escapeHTML(primarySale.studentClass)}</strong>${primarySale.customerMeta ? ` &bull; <strong>${escapeHTML(primarySale.customerMeta)}</strong>` : ''}</p>` : (primarySale.customerMeta ? `<p class="text-slate-700">Details: <strong>${escapeHTML(primarySale.customerMeta)}</strong></p>` : '')}
                     ${primarySale.customerPhone ? `<p class="text-slate-700">Mobile: <strong>${escapeHTML(primarySale.customerPhone)}</strong></p>` : ''}
-                    ${primarySale.customerMeta ? `<p class="text-slate-700">Details: <strong>${escapeHTML(primarySale.customerMeta)}</strong></p>` : ''}
                     <p class="text-slate-700">Payment Mode: <strong>${escapeHTML(primarySale.paymentMode || 'Cash')}</strong></p>
                   </div>
                   <div class="space-y-1 border-l border-slate-300 pl-4">
@@ -2722,15 +3188,15 @@ function doPost(e) {
                   </div>
                 </div>
 
-                <table class="w-full border-collapse border border-slate-400 text-xs mt-4">
+                <table class="w-full border-collapse border border-slate-400 text-xs mt-3">
                   <thead>
                     <tr class="bg-slate-900 text-white">
-                      <th class="py-2.5 px-3 text-center border border-slate-700 w-12">S.No</th>
-                      <th class="py-2.5 px-3 text-left border border-slate-700">Item Description</th>
-                      <th class="py-2.5 px-3 text-center border border-slate-700 w-20">Size</th>
-                      <th class="py-2.5 px-3 text-center border border-slate-700 w-24">Quantity (Pcs)</th>
-                      <th class="py-2.5 px-3 text-right border border-slate-700 w-28">Unit Rate (₹)</th>
-                      <th class="py-2.5 px-3 text-right border border-slate-700 w-32">Amount (₹)</th>
+                      <th class="py-2 px-3 text-center border border-slate-700 w-12">S.No</th>
+                      <th class="py-2 px-3 text-left border border-slate-700">Item Description</th>
+                      <th class="py-2 px-3 text-center border border-slate-700 w-20">Size</th>
+                      <th class="py-2 px-3 text-center border border-slate-700 w-24">Quantity (Pcs)</th>
+                      <th class="py-2 px-3 text-right border border-slate-700 w-28">Unit Rate (₹)</th>
+                      <th class="py-2 px-3 text-right border border-slate-700 w-32">Amount (₹)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2767,7 +3233,7 @@ function doPost(e) {
                   </tfoot>
                 </table>
 
-                <div class="mt-4 p-3 bg-slate-50 border border-slate-300 rounded text-xs flex flex-col sm:flex-row sm:justify-between gap-2">
+                <div class="mt-3 p-3 bg-slate-50 border border-slate-300 rounded text-xs flex flex-col sm:flex-row sm:justify-between gap-2">
                   <div>
                     <span class="text-slate-500 font-semibold">Amount in Words: </span>
                     <span class="font-bold text-slate-900 italic">${amountInWords}</span>
@@ -2778,21 +3244,31 @@ function doPost(e) {
                 </div>
               </div>
 
-              <div class="pt-10">
-                <div class="grid grid-cols-2 gap-8 text-xs text-slate-700 mb-6">
+              <!-- Footer with Optional UPI QR Code & Signatures -->
+              <div class="pt-6">
+                <div class="flex justify-between items-end gap-4 mb-5">
                   <div>
-                    <div class="border-b border-slate-400 w-48 h-10"></div>
-                    <p class="font-semibold mt-1.5">Customer Signature</p>
+                    <div class="border-b border-slate-400 w-44 h-12"></div>
+                    <p class="font-semibold text-xs text-slate-700 mt-1.5">Customer / Parent Signature</p>
                   </div>
+
+                  ${(storeConfig.qrDataUrl || storeConfig.upiId) ? `
+                  <div class="text-center border border-slate-300 rounded-lg p-2 bg-slate-50">
+                    ${storeConfig.qrDataUrl ? `<img src="${storeConfig.qrDataUrl}" alt="UPI QR" class="w-20 h-20 object-contain mx-auto" />` : ''}
+                    ${storeConfig.upiId ? `<p class="text-[10px] font-bold text-slate-800 mt-1">UPI: ${escapeHTML(storeConfig.upiId)}</p>` : ''}
+                    <p class="text-[9px] text-slate-500">Scan &amp; Pay</p>
+                  </div>
+                  ` : ''}
+
                   <div class="text-right flex flex-col items-end">
-                    <div class="border-b border-slate-400 w-48 h-10"></div>
-                    <p class="font-semibold mt-1.5">Authorized Signatory (${escapeHTML(primarySale.soldBy || 'Store Manager')})</p>
+                    <div class="border-b border-slate-400 w-44 h-12"></div>
+                    <p class="font-semibold text-xs text-slate-700 mt-1.5">Authorized Signatory (${escapeHTML(primarySale.soldBy || 'Store Manager')})</p>
                   </div>
                 </div>
 
-                <div class="border-t border-slate-300 pt-3 text-center text-[11px] text-slate-500">
+                <div class="border-t border-slate-300 pt-2.5 text-center text-[11px] text-slate-500">
                   <p class="font-medium text-slate-700">${escapeHTML(storeConfig.footerNote)}</p>
-                  <p class="mt-1">Computer Generated A4 Receipt &bull; Printed on ${formatDateReadable(getTodayDate())}</p>
+                  <p class="mt-0.5">Computer Generated A4 Receipt &bull; Printed on ${formatDateReadable(getTodayDate())}</p>
                 </div>
               </div>
             </div>
@@ -2801,7 +3277,61 @@ function doPost(e) {
       `;
     }
 
-    function sendReceiptOnWhatsApp(receiptNo) {
+    async function shareReceiptPDFOnWhatsApp(receiptNo, customerName) {
+      const element = document.getElementById('receiptPrintArea');
+      const btn = document.getElementById('btnShareWhatsappPdf');
+      if (!element) return;
+
+      const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const fileName = `${receiptNo}_${safeCustomer}.pdf`;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generating A4 PDF...';
+      }
+
+      try {
+        const opt = {
+          margin: 0,
+          filename: fileName,
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2, useCORS: true },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+
+        if (typeof html2pdf !== 'undefined') {
+          const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
+          const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+          if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+            await navigator.share({
+              files: [pdfFile],
+              title: `Receipt ${receiptNo}`,
+              text: `Sales Receipt ${receiptNo} - ${storeConfig.storeName}`
+            });
+          } else {
+            html2pdf().set(opt).from(element).save();
+            alert('A4 PDF download ho gaya hai! Ab WhatsApp chat khul rahi hai — wahan attach karke bhej dein.');
+            sendReceiptTextOnWhatsApp(receiptNo);
+          }
+        } else {
+          window.print();
+        }
+      } catch (err) {
+        if (err && err.name !== 'AbortError') {
+          console.error('PDF Share Error:', err);
+          alert('Direct share mein dikkat aayi, PDF download kiya ja raha hai.');
+          downloadReceiptPDF(receiptNo, customerName);
+        }
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Share A4 PDF on WhatsApp';
+        }
+      }
+    }
+
+    function sendReceiptTextOnWhatsApp(receiptNo) {
       const selectedSales = salesList.filter(s => selectedReceiptSaleIds.includes(s.id));
       if (!selectedSales.length) return;
 
@@ -2819,7 +3349,7 @@ function doPost(e) {
       let msg = `*${storeConfig.storeName}*\n`;
       msg += `Receipt No: *${receiptNo}*\n`;
       msg += `Date: ${formatDateReadable(primarySale.date)}\n`;
-      msg += `Customer: *${primarySale.soldTo}*\n`;
+      msg += `Student/Customer: *${primarySale.soldTo}*${primarySale.studentClass ? ` (${primarySale.studentClass})` : ''}\n`;
       msg += `------------------------\n`;
       msg += `${itemsLines}\n`;
       msg += `------------------------\n`;
@@ -2834,7 +3364,6 @@ function doPost(e) {
       }
       msg += `Thank you!`;
 
-      // Clean customer phone for WhatsApp API
       let rawPhone = String(primarySale.customerPhone || '').replace(/[^0-9]/g, '');
       if (rawPhone.length === 10) {
         rawPhone = '91' + rawPhone;
@@ -2935,6 +3464,7 @@ function doPost(e) {
       e.preventDefault();
       const date = document.getElementById('saleDate').value;
       const soldTo = document.getElementById('saleSoldTo').value.trim();
+      const studentClass = document.getElementById('saleStudentClass').value;
       const customerPhone = document.getElementById('saleCustomerPhone').value.trim();
       const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
       const size = String(document.getElementById('saleSize').value);
@@ -2960,6 +3490,7 @@ function doPost(e) {
         id: newId,
         date,
         soldTo,
+        studentClass,
         customerPhone,
         customerMeta,
         category,
@@ -3029,12 +3560,13 @@ function doPost(e) {
         alert('Export karne ke liye koi sales entry nahi hai.');
         return;
       }
-      const headers = ['Date', 'Sold To', 'Mobile', 'Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+      const headers = ['Date', 'Sold To', 'Class', 'Mobile', 'Roll/Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
       const rows = salesList.map(r => {
         const sub = Number(r.pieces) * Number(r.rate);
         return [
           r.date,
           `"${(r.soldTo || '').replace(/"/g, '""')}"`,
+          `"${(r.studentClass || '').replace(/"/g, '""')}"`,
           `"${(r.customerPhone || '').replace(/"/g, '""')}"`,
           `"${(r.customerMeta || '').replace(/"/g, '""')}"`,
           `"${(r.category || '').replace(/"/g, '""')}"`,
@@ -3069,6 +3601,7 @@ function doPost(e) {
       if (!confirm('Kya aap sabhi sales entries delete karke default stock wapas lana chahte hain?')) return;
       stockConfig = JSON.parse(JSON.stringify(INITIAL_STOCK));
       salesList = [];
+      stockPurchasesList = [];
       selectedReceiptSaleIds = [];
       saveDataAndSync();
       renderContent();
