@@ -1987,6 +1987,455 @@
     }
 
 
+    // ==================== CLASS-WISE DISTRIBUTION REPORT (#3) ====================
+    function renderClassWiseSummaryTable() {
+      const activeSales = salesList.filter(s => !s.isReturned);
+      const allClassKeys = [...SCHOOL_CLASSES, 'Other / Unassigned'];
+
+      let totalStudentsAll = 0;
+      let totalPcsAll = 0;
+      let totalNetAll = 0;
+      let totalPaidAll = 0;
+      let totalDueAll = 0;
+
+      const rowsHTML = allClassKeys.map(cls => {
+        const clsSales = activeSales.filter(s => {
+          const sc = String(s.studentClass || '').trim();
+          if (cls === 'Other / Unassigned') return !sc || !SCHOOL_CLASSES.includes(sc);
+          return sc === cls;
+        });
+
+        const uniqueBills = new Set(clsSales.map(s => s.invoiceGroupId || s.id)).size;
+        const pcs = clsSales.reduce((sum, s) => sum + Number(s.pieces), 0);
+        const net = clsSales.reduce((sum, s) => sum + Number(s.amount), 0);
+        const paid = clsSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
+        const due = clsSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
+
+        totalStudentsAll += uniqueBills;
+        totalPcsAll += pcs;
+        totalNetAll += net;
+        totalPaidAll += paid;
+        totalDueAll += due;
+
+        if (cls === 'Other / Unassigned' && uniqueBills === 0) return '';
+
+        return `
+          <tr class="hover:bg-slate-50 ${uniqueBills === 0 ? 'text-slate-400' : ''}">
+            <td class="px-4 py-2.5 font-bold ${uniqueBills > 0 ? 'text-slate-900' : 'text-slate-400'}">${escapeHTML(cls)}</td>
+            <td class="px-4 py-2.5 text-center font-semibold">${uniqueBills}</td>
+            <td class="px-4 py-2.5 text-center font-semibold text-amber-700">${pcs}</td>
+            <td class="px-4 py-2.5 text-right font-semibold text-blue-900">${formatINR(net)}</td>
+            <td class="px-4 py-2.5 text-right text-emerald-700 font-semibold">${formatINR(paid)}</td>
+            <td class="px-4 py-2.5 text-right ${due > 0 ? 'text-rose-600 font-bold' : ''}">${formatINR(due)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      return `
+        <div class="overflow-x-auto border border-slate-200 rounded-lg">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-blue-950 text-white">
+              <tr>
+                <th class="px-4 py-3 text-left font-semibold">Class</th>
+                <th class="px-4 py-3 text-center font-semibold">Students / Bills</th>
+                <th class="px-4 py-3 text-center font-semibold">Pieces Distributed</th>
+                <th class="px-4 py-3 text-right font-semibold">Net Billing</th>
+                <th class="px-4 py-3 text-right font-semibold">Collected</th>
+                <th class="px-4 py-3 text-right font-semibold">Balance Due</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 bg-white">${rowsHTML}</tbody>
+            <tfoot class="bg-slate-200 font-bold text-slate-900">
+              <tr>
+                <td class="px-4 py-3">All Classes Total</td>
+                <td class="px-4 py-3 text-center">${totalStudentsAll}</td>
+                <td class="px-4 py-3 text-center">${totalPcsAll}</td>
+                <td class="px-4 py-3 text-right">${formatINR(totalNetAll)}</td>
+                <td class="px-4 py-3 text-right text-emerald-800">${formatINR(totalPaidAll)}</td>
+                <td class="px-4 py-3 text-right text-rose-700">${formatINR(totalDueAll)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }
+
+    // ==================== PRE-BOOKING / ADVANCE ORDER TAB (#1) ====================
+    function renderPreOrdersTab(container) {
+      const categories = Object.keys(stockConfig);
+      const catOptions = categories.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+
+      const pendingOrders = preOrdersList.filter(p => p.status !== 'Delivered');
+      const totalAdvanceHeld = pendingOrders.reduce((sum, p) => sum + Number(p.advancePaid || 0), 0);
+
+      const rowsHTML = preOrdersList.length ? preOrdersList.slice().reverse().map(po => {
+        const isDelivered = po.status === 'Delivered';
+        const balanceLeft = Math.max(0, Number(po.estimatedTotal || 0) - Number(po.advancePaid || 0));
+        return `
+          <tr class="${isDelivered ? 'bg-slate-50 text-slate-500' : 'hover:bg-amber-50/40'}">
+            <td class="px-3 py-2.5 text-center whitespace-nowrap">${po.date}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-900">
+              ${escapeHTML(po.studentName)}
+              ${po.studentClass ? `<span class="ml-1 bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(po.studentClass)}</span>` : ''}
+              ${po.phone ? `<div class="text-xs font-normal text-blue-700">Ph: ${escapeHTML(po.phone)}</div>` : ''}
+              ${po.note ? `<div class="text-[11px] font-normal text-slate-500">${escapeHTML(po.note)}</div>` : ''}
+            </td>
+            <td class="px-3 py-2.5 text-center font-semibold">${escapeHTML(po.category)} (Size ${escapeHTML(po.size)}) &times; ${po.pieces}</td>
+            <td class="px-3 py-2.5 text-right font-semibold">${formatINR(po.estimatedTotal)}</td>
+            <td class="px-3 py-2.5 text-right text-emerald-700 font-bold">${formatINR(po.advancePaid)}</td>
+            <td class="px-3 py-2.5 text-right text-rose-600 font-semibold">${formatINR(balanceLeft)}</td>
+            <td class="px-3 py-2.5 text-center">
+              ${isDelivered
+                ? `<span class="bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-1 rounded-full">Delivered</span>`
+                : `<span class="bg-amber-100 text-amber-900 text-[11px] font-bold px-2.5 py-1 rounded-full">Pending</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1.5">
+              ${!isDelivered ? `
+                <button type="button" onclick="convertPreOrderToSale('${po.id}')"
+                  class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold shadow-xs">
+                  Deliver &amp; Bill
+                </button>
+              ` : ''}
+              ${isAdminUser() ? `
+                <button type="button" onclick="deletePreOrder('${po.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold px-1">
+                  Delete
+                </button>
+              ` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('') : `
+        <tr>
+          <td colspan="8" class="py-8 text-center text-xs text-slate-500">
+            Abhi koi Pre-Booking / Advance Order nahi hai. Upar form se out-of-stock size book karein.
+          </td>
+        </tr>
+      `;
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <div class="bg-amber-50/80 border border-amber-200 rounded-xl p-5">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+              <div>
+                <h2 class="text-lg font-bold text-slate-900">New Advance / Pre-Booking Order (Out-of-Stock Sizes)</h2>
+                <p class="text-xs text-slate-600 mt-0.5">
+                  Agar kisi student ka size abhi available nahi hai, to yahan advance order book karein. Maal aane par 1 click mein <strong>Deliver &amp; Bill</strong> ho jayega.
+                </p>
+              </div>
+              <span class="text-xs font-bold bg-amber-200/80 text-amber-950 px-3 py-1 rounded-full self-start">
+                Pending Orders: ${pendingOrders.length} | Advance Held: ${formatINR(totalAdvanceHeld)}
+              </span>
+            </div>
+
+            <form onsubmit="handleAddPreOrder(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Booking Date *</label>
+                <input type="date" id="poDate" value="${getTodayDate()}" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Student Name *</label>
+                <input type="text" id="poStudentName" placeholder="Student Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Class *</label>
+                <select id="poStudentClass"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-blue-800">
+                  ${getClassSelectOptionsHTML()}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Parent Mobile No.</label>
+                <input type="tel" id="poPhone" placeholder="e.g. 9876543210"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Product Category *</label>
+                <select id="poCategory" onchange="updatePreOrderSizeOptions()" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                  ${catOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Required Size *</label>
+                <select id="poSize" onchange="updatePreOrderPreview()" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Pieces *</label>
+                <input type="number" id="poPieces" min="1" value="1" oninput="updatePreOrderPreview()" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Advance Paid Now (₹)</label>
+                <input type="number" id="poAdvancePaid" min="0" value="0" required
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Note / Roll No. (Optional)</label>
+                <input type="text" id="poNote" placeholder="e.g. Urgent for Monday assembly"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div class="sm:col-span-2 flex items-center justify-between gap-3 pt-1">
+                <span class="text-xs text-slate-700">Estimated Total: <strong id="poEstTotalLabel" class="text-blue-900 text-sm">₹0</strong></span>
+                <button type="submit"
+                  class="bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm px-5 py-2.5 rounded-lg shadow transition">
+                  + Save Pre-Booking Order
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div>
+            <h3 class="text-lg font-bold text-slate-800 mb-3">Advance / Pre-Orders Register (${preOrdersList.length})</h3>
+            <div class="overflow-x-auto border border-slate-200 rounded-lg">
+              <table class="min-w-full divide-y divide-slate-200 text-sm">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-3 text-center font-semibold">Date</th>
+                    <th class="px-3 py-3 text-left font-semibold">Student Details</th>
+                    <th class="px-3 py-3 text-center font-semibold">Booked Item</th>
+                    <th class="px-3 py-3 text-right font-semibold">Est. Total</th>
+                    <th class="px-3 py-3 text-right font-semibold">Advance Paid</th>
+                    <th class="px-3 py-3 text-right font-semibold">Balance</th>
+                    <th class="px-3 py-3 text-center font-semibold">Status</th>
+                    <th class="px-3 py-3 text-center font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200 bg-white">${rowsHTML}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+
+      updatePreOrderSizeOptions();
+    }
+
+    function updatePreOrderSizeOptions() {
+      const catEl = document.getElementById('poCategory');
+      const sizeEl = document.getElementById('poSize');
+      if (!catEl || !sizeEl) return;
+      const cat = catEl.value;
+      const items = stockConfig[cat] || [];
+      sizeEl.innerHTML = items.map(item =>
+        `<option value="${escapeHTML(item.size)}">Size ${escapeHTML(item.size)} (${formatINR(item.price)})</option>`
+      ).join('');
+      updatePreOrderPreview();
+    }
+
+    function updatePreOrderPreview() {
+      const catEl = document.getElementById('poCategory');
+      const sizeEl = document.getElementById('poSize');
+      const pcsEl = document.getElementById('poPieces');
+      const lblEl = document.getElementById('poEstTotalLabel');
+      if (!catEl || !sizeEl || !pcsEl || !lblEl) return;
+
+      const itemObj = (stockConfig[catEl.value] || []).find(i => String(i.size) === String(sizeEl.value));
+      const rate = itemObj ? Number(itemObj.price) : 0;
+      const pcs = Math.max(1, Number(pcsEl.value) || 0);
+      lblEl.textContent = formatINR(rate * pcs);
+    }
+
+    function handleAddPreOrder(e) {
+      e.preventDefault();
+      const date = document.getElementById('poDate').value;
+      const studentName = document.getElementById('poStudentName').value.trim();
+      const studentClass = document.getElementById('poStudentClass').value;
+      const phone = document.getElementById('poPhone').value.trim();
+      const category = document.getElementById('poCategory').value;
+      const size = String(document.getElementById('poSize').value);
+      const pieces = Math.max(1, Number(document.getElementById('poPieces').value) || 1);
+      const advancePaid = Math.max(0, Number(document.getElementById('poAdvancePaid').value) || 0);
+      const note = document.getElementById('poNote').value.trim();
+
+      const itemObj = (stockConfig[category] || []).find(i => String(i.size) === size);
+      const rate = itemObj ? Number(itemObj.price) : 0;
+      const estimatedTotal = rate * pieces;
+
+      preOrdersList.push({
+        id: 'PO-' + Date.now(),
+        date,
+        studentName,
+        studentClass,
+        phone,
+        category,
+        size,
+        pieces,
+        rate,
+        estimatedTotal,
+        advancePaid,
+        note,
+        status: 'Pending',
+        bookedBy: currentSession ? currentSession.displayName : 'Staff'
+      });
+
+      saveDataAndSync();
+      renderContent();
+      alert(`Pre-Booking order (${studentName} - ${category} Size ${size}) save ho gaya hai!`);
+    }
+
+    function convertPreOrderToSale(poId) {
+      const po = preOrdersList.find(p => p.id === poId);
+      if (!po || po.status === 'Delivered') return;
+
+      const balanceDue = Math.max(0, Number(po.estimatedTotal) - Number(po.advancePaid));
+      if (!confirm(`Kya aap "${po.studentName}" ko ${po.category} (Size ${po.size}) × ${po.pieces} deliver karke final Sale mein convert karna chahte hain?\n\nTotal: ₹${po.estimatedTotal} | Advance: ₹${po.advancePaid} | Remaining Due: ₹${balanceDue}`)) {
+        return;
+      }
+
+      const newSaleId = Date.now().toString();
+      salesList.push({
+        id: newSaleId,
+        date: getTodayDate(),
+        soldTo: po.studentName,
+        studentClass: po.studentClass || '',
+        customerPhone: po.phone || '',
+        customerMeta: po.note ? `Pre-Order: ${po.note}` : 'From Pre-Order',
+        category: po.category,
+        size: po.size,
+        pieces: Number(po.pieces),
+        rate: Number(po.rate),
+        discount: 0,
+        amount: Number(po.estimatedTotal),
+        paidAmount: Number(po.advancePaid),
+        dueAmount: balanceDue,
+        paymentMode: balanceDue > 0 ? 'Due / Credit' : 'Cash',
+        soldBy: currentSession ? currentSession.displayName : 'Staff',
+        inHandOf: currentSession ? currentSession.displayName : 'Counter'
+      });
+
+      po.status = 'Delivered';
+      po.deliveredDate = getTodayDate();
+
+      saveDataAndSync();
+      selectedReceiptSaleIds = [newSaleId];
+      switchTab('Receipt');
+    }
+
+    function deletePreOrder(poId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is pre-order ko delete karna chahte hain?')) return;
+      preOrdersList = preOrdersList.filter(p => p.id !== poId);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    // ==================== FULL BILL RETURN / REFUND MODAL (#2) ====================
+    function openRefundModal(saleId) {
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale || sale.isReturned) return;
+
+      const body = document.getElementById('refundModalBody');
+      body.innerHTML = `
+        <div class="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1">
+          <p>Student / Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong> ${sale.studentClass ? `(${escapeHTML(sale.studentClass)})` : ''}</p>
+          <p>Item to Return: <strong>${escapeHTML(sale.category)} — Size ${escapeHTML(sale.size)} (${sale.pieces} Pcs)</strong></p>
+          <p>Paid Amount to Refund: <strong class="text-rose-700 text-sm">${formatINR(sale.paidAmount)}</strong></p>
+          <p class="text-slate-600 pt-1">Confirm karne par <strong>${sale.pieces} Pcs</strong> wapas stock mein jud jayenge aur ye bill <strong>RETURNED</strong> mark ho jayega.</p>
+        </div>
+
+        <form onsubmit="submitBillRefund(event, '${sale.id}')" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Return Reason (Optional)</label>
+            <input type="text" id="refundReasonInput" placeholder="e.g. Size did not fit / Cancelled"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <button type="submit" class="w-full bg-rose-700 hover:bg-rose-800 text-white font-bold text-sm py-2.5 rounded-lg shadow">
+            Confirm Return &amp; Restock (${sale.pieces} Pcs)
+          </button>
+        </form>
+      `;
+      document.getElementById('refundModal').classList.remove('hidden');
+    }
+
+    function closeRefundModal() {
+      document.getElementById('refundModal').classList.add('hidden');
+    }
+
+    function submitBillRefund(e, saleId) {
+      e.preventDefault();
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale || sale.isReturned) return;
+
+      const reason = document.getElementById('refundReasonInput').value.trim();
+      sale.refundedAmount = Number(sale.paidAmount || 0);
+      sale.isReturned = true;
+      sale.amount = 0;
+      sale.paidAmount = 0;
+      sale.dueAmount = 0;
+      sale.returnDate = getTodayDate();
+      sale.returnReason = reason || 'Returned';
+
+      saveDataAndSync();
+      closeRefundModal();
+      renderContent();
+      alert(`Item wapas stock mein jud gaya hai aur ₹${sale.refundedAmount} refund record ho gaya hai!`);
+    }
+
+    // ==================== FULL JSON BACKUP EXPORT & RESTORE (#4) ====================
+    function downloadFullBackupJSON() {
+      const backupPayload = {
+        app: 'Garment_Stock_POS_Backup',
+        exportedAt: new Date().toISOString(),
+        stockConfig,
+        salesList,
+        stockPurchasesList,
+        preOrdersList,
+        storeConfig,
+        authUsers
+      };
+      const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Garment_Full_Backup_${getTodayDate()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function handleRestoreBackupJSON(event) {
+      if (!isAdminUser()) {
+        alert('Sirf Admin hi backup restore kar sakta hai.');
+        return;
+      }
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          if (!parsed || !parsed.stockConfig || !Array.isArray(parsed.salesList)) {
+            alert('Invalid backup file! Kripya sahi JSON backup file chunein.');
+            return;
+          }
+          if (!confirm(`Kya aap is backup file (${parsed.salesList.length} sales records) ko restore karna chahte hain? Current data is backup se replace ho jayega.`)) {
+            return;
+          }
+          stockConfig = parsed.stockConfig;
+          salesList = parsed.salesList;
+          normalizeSalesList();
+          stockPurchasesList = Array.isArray(parsed.stockPurchasesList) ? parsed.stockPurchasesList : [];
+          preOrdersList = Array.isArray(parsed.preOrdersList) ? parsed.preOrdersList : [];
+          if (parsed.storeConfig) storeConfig = parsed.storeConfig;
+          if (Array.isArray(parsed.authUsers) && parsed.authUsers.length > 0) {
+            authUsers = parsed.authUsers;
+            normalizeAuthUsers();
+          }
+
+          saveDataAndSync();
+          renderContent();
+          alert('Full Backup successfully restore ho gaya aur Google Sheet par sync ho raha hai!');
+        } catch (err) {
+          alert('Backup file read karne mein error aaya.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
     // ==================== RECENT BILL CARD (BELOW QUICK POS CHECKOUT) ====================
     function renderRecentBillQuickCard() {
       if (!salesList.length) return '';
@@ -2162,16 +2611,13 @@
       if (dueSpan) dueSpan.textContent = formatINR(dueVal);
     }
 
-    function checkRecentDuplicateSale(studentName, studentClass, checkItems) {
-      const now = Date.now();
-      const twoMinutesMs = 2 * 60 * 1000;
+    function checkRecentDuplicateSale(studentName, studentClass, saleDate, checkItems) {
       const normName = studentName.trim().toLowerCase();
       const normClass = String(studentClass || '').trim().toLowerCase();
 
       return salesList.some(s => {
         if (s.isReturned) return false;
-        const saleTs = Number(String(s.id).split('_')[0]) || 0;
-        if (now - saleTs > twoMinutesMs) return false;
+        if (s.date !== saleDate) return false;
         if (String(s.soldTo || '').trim().toLowerCase() !== normName) return false;
         if (String(s.studentClass || '').trim().toLowerCase() !== normClass) return false;
         return checkItems.some(ci => ci.category === s.category && String(ci.size) === String(s.size));
@@ -2190,8 +2636,8 @@
       const soldTo = document.getElementById('posSoldTo').value.trim();
       const dupClass = document.getElementById('posStudentClass').value;
 
-      if (checkRecentDuplicateSale(soldTo, dupClass, posCartItems)) {
-        if (!confirm(`Warning: "${soldTo}" ka bilkul aisa hi bill pichhle 2 minute mein ban chuka hai! Kya aap phir bhi naya bill banana chahte hain?`)) {
+      if (checkRecentDuplicateSale(soldTo, dupClass, date, posCartItems)) {
+        if (!confirm(`Warning: "${soldTo}" ka bilkul aisa hi bill aaj ki date mein pehle hi ban chuka hai! Kya aap phir bhi naya bill banana chahte hain?`)) {
           return;
         }
       }
@@ -3833,8 +4279,8 @@ function doPost(e) {
       const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
       const size = String(document.getElementById('saleSize').value);
 
-      if (checkRecentDuplicateSale(soldTo, studentClass, [{ category, size }])) {
-        if (!confirm(`Warning: "${soldTo}" ka ${category} (Size ${size}) ka bill abhi pichhle 2 minute mein bana hai! Kya aap phir bhi dobara entry karna chahte hain?`)) {
+      if (checkRecentDuplicateSale(soldTo, studentClass, date, [{ category, size }])) {
+        if (!confirm(`Warning: "${soldTo}" ka ${category} (Size ${size}) ka bill aaj ki date mein pehle hi ban chuka hai! Kya aap phir bhi dobara entry karna chahte hain?`)) {
           return;
         }
       }
