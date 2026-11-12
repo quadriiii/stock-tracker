@@ -3,21 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Garment Stock &amp; Sales Tracker (Live Cloud Sync)</title>
+  <title>Garment Stock, POS Billing &amp; Sales Tracker (Live Cloud Sync)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     body { font-family: 'Inter', sans-serif; background-color: #f1f5f9; color: #0f172a; }
-    .tab-active { border-bottom: 3px solid #1e3a8a; color: #1e3a8a; font-weight: 700; }
+    .tab-active { border-bottom: 3px solid #1e3a8a; color: #1e3a8a; font-weight: 700; background-color: #eff6ff; }
     .tab-inactive { color: #64748b; font-weight: 500; }
-    .tab-inactive:hover { color: #1e3a8a; }
+    .tab-inactive:hover { color: #1e3a8a; background-color: #f8fafc; }
 
     /* A4 Sheet Styling for Preview & Print */
     .a4-sheet {
       width: 210mm;
       min-height: 296mm;
-      padding: 16mm 18mm;
+      padding: 15mm 17mm;
       margin: 0 auto;
       background: #ffffff;
       color: #0f172a;
@@ -38,7 +38,7 @@
         width: 210mm !important;
         min-height: 297mm !important;
         margin: 0 !important;
-        padding: 15mm 18mm !important;
+        padding: 14mm 17mm !important;
         box-shadow: none !important;
         border: none !important;
       }
@@ -106,7 +106,7 @@
   </div>
 
   <!-- ==================== ADMIN USER & PASSWORD MANAGEMENT MODAL ==================== -->
-  <div id="manageUsersModal" class="hidden fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4 overflow-y-auto">
+  <div id="manageUsersModal" class="hidden fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4 overflow-y-auto">
     <div class="bg-white max-w-3xl w-full rounded-2xl shadow-2xl border border-slate-200 overflow-hidden my-auto">
       <div class="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
         <div>
@@ -117,10 +117,29 @@
           Close &times;
         </button>
       </div>
+      <div id="manageUsersBody" class="p-5 space-y-6 max-h-[80vh] overflow-y-auto"></div>
+    </div>
+  </div>
 
-      <div id="manageUsersBody" class="p-5 space-y-6 max-h-[80vh] overflow-y-auto">
-        <!-- Populated dynamically -->
+  <!-- ==================== SIZE EXCHANGE MODAL ==================== -->
+  <div id="exchangeModal" class="hidden fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div class="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+        <h3 class="text-base font-bold">Return / Size Exchange</h3>
+        <button onclick="closeExchangeModal()" class="text-slate-300 hover:text-white bg-white/10 rounded-lg px-2.5 py-1 text-xs font-bold">Close &times;</button>
       </div>
+      <div id="exchangeModalBody" class="p-5 space-y-4"></div>
+    </div>
+  </div>
+
+  <!-- ==================== COLLECT DUE PAYMENT MODAL ==================== -->
+  <div id="collectDueModal" class="hidden fixed inset-0 z-50 bg-slate-950/75 flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div class="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+        <h3 class="text-base font-bold">Collect Pending Due Amount</h3>
+        <button onclick="closeCollectDueModal()" class="text-slate-300 hover:text-white bg-white/10 rounded-lg px-2.5 py-1 text-xs font-bold">Close &times;</button>
+      </div>
+      <div id="collectDueModalBody" class="p-5 space-y-4"></div>
     </div>
   </div>
 
@@ -131,7 +150,7 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <div class="flex items-center gap-2.5 flex-wrap">
-            <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Garment Stock &amp; Sales Tracker</h1>
+            <h1 class="text-xl sm:text-2xl font-bold tracking-tight">Garment Stock &amp; POS Tracker</h1>
             <span id="syncStatusBadge" class="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/30">
               Checking Sync...
             </span>
@@ -139,7 +158,7 @@
               User
             </span>
           </div>
-          <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Opening Stock Date: 03-11-2026 &bull; Multi-Product Inventory, Discount &amp; Live Cloud Sync</p>
+          <p class="text-xs sm:text-sm text-slate-300 mt-0.5">Opening Stock Date: 03-11-2026 &bull; Multi-Item Billing, Partial Dues, Exchange &amp; Live Cloud Sync</p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <button id="btnAdminChangePass" onclick="openManageUsersModal()" class="hidden bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs sm:text-sm font-bold px-3.5 py-2 rounded-lg shadow transition">
@@ -159,7 +178,10 @@
     </header>
 
     <!-- Main Container -->
-    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 space-y-6">
+    <main class="max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 space-y-5">
+
+      <!-- Low Stock Alert Banner (Dynamic) -->
+      <div id="lowStockAlertBanner" class="hidden"></div>
 
       <!-- Summary Cards -->
       <section class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="summaryCards">
@@ -168,7 +190,7 @@
 
       <!-- Navigation Tabs (Dynamic Categories + Fixed Tabs) -->
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div id="navTabsBar" class="flex flex-wrap border-b border-slate-200 bg-slate-50 px-4">
+        <div id="navTabsBar" class="flex flex-wrap border-b border-slate-200 bg-slate-50 px-3">
           <!-- Populated dynamically -->
         </div>
 
@@ -180,18 +202,18 @@
     </main>
 
     <footer class="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-      Connected to Google Sheets Cloud Sync &bull; Real-time multi-device stock, products &amp; sales ledger
+      Connected to Google Sheets Cloud Sync &bull; Real-time multi-device stock, POS billing, dues &amp; sales ledger
     </footer>
   </div>
 
   <script>
     // =========================================================================
-    // IMPORTANT: Apna Google Apps Script Web App URL yahan paste karein taaki
-    // har phone/device par link kholte hi automatic live data sync ho!
+    // Your Connected Google Apps Script Web App URL
     // =========================================================================
     const DEFAULT_GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw-C74pc1bd0fwSd-5rYQoKgqewxzPIKHgfAro20ceQP5_LTyBSfqNgJOM4kMwF0mbS/exec";
 
     const MAX_EMPLOYEES = 5;
+    const LOW_STOCK_THRESHOLD = 2;
 
     const INITIAL_STOCK = {
       Sweater: [
@@ -225,7 +247,6 @@
     const STORAGE_KEY_AUTH_USERS = 'garment_tracker_auth_users_v2';
     const STORAGE_KEY_SESSION = 'garment_tracker_session_v2';
 
-    // Safe JSON parser so corrupted localStorage never crashes the script
     function safeParseJSON(key, fallback) {
       try {
         const raw = localStorage.getItem(key);
@@ -233,15 +254,16 @@
         const parsed = JSON.parse(raw);
         return (parsed !== null && parsed !== undefined) ? parsed : fallback;
       } catch (e) {
-        console.warn('Corrupt storage key cleared:', key);
         localStorage.removeItem(key);
         return fallback;
       }
     }
 
-    let currentTab = 'Sweater';
+    let currentTab = 'QuickPOS';
     let selectedReceiptSaleIds = [];
+    let posCartItems = [];
     let isSyncing = false;
+    let closingFilterDate = new Date().toISOString().split('T')[0];
 
     let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(STORAGE_KEY_SCRIPT_URL) || '';
     let stockConfig = safeParseJSON(STORAGE_KEY_STOCK, JSON.parse(JSON.stringify(INITIAL_STOCK)));
@@ -276,6 +298,26 @@
       }
     }
     normalizeAuthUsers();
+
+    // Normalize sales records for backward compatibility (partial payment & due fields)
+    function normalizeSalesList() {
+      if (!Array.isArray(salesList)) salesList = [];
+      salesList = salesList.map(s => {
+        const netAmt = Number(s.amount) || 0;
+        const paidAmt = (s.paidAmount !== undefined && s.paidAmount !== null)
+          ? Number(s.paidAmount)
+          : (s.paymentMode === 'Due / Credit' ? 0 : netAmt);
+        const dueAmt = Math.max(0, netAmt - paidAmt);
+        return {
+          ...s,
+          discount: Number(s.discount || 0),
+          amount: netAmt,
+          paidAmount: paidAmt,
+          dueAmount: dueAmt
+        };
+      });
+    }
+    normalizeSalesList();
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -336,9 +378,14 @@
         }
 
         const categories = Object.keys(stockConfig);
-        if (!categories.includes(currentTab) && !['Summary', 'AddProduct', 'Receipt', 'SyncSetup'].includes(currentTab)) {
-          currentTab = categories[0] || 'AddProduct';
+        const fixedValidTabs = ['QuickPOS', 'PendingDues', 'DailyClosing', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
+          currentTab = 'QuickPOS';
         }
+        if (currentTab === 'SyncSetup' && !isAdminUser()) {
+          currentTab = 'QuickPOS';
+        }
+
         renderContent();
         if (googleScriptUrl) {
           syncFromGoogleSheet(false);
@@ -372,7 +419,6 @@
       normalizeAuthUsers();
       let matched = authUsers.find(acc => acc.username.toLowerCase() === u && acc.password === p);
 
-      // If not matched locally and Google Sheet URL is configured, check cloud with a 5s timeout
       if (!matched && googleScriptUrl) {
         if (submitBtn) {
           submitBtn.disabled = true;
@@ -732,10 +778,6 @@
     async function syncFromGoogleSheet(showToast = false) {
       if (!googleScriptUrl) {
         updateSyncBadge('local', 'Local Only (Setup Sync)');
-        if (showToast) {
-          alert('Pehle "Sync & Settings" tab mein jakar apna Web App URL save karein.');
-          switchTab('SyncSetup');
-        }
         return;
       }
 
@@ -761,6 +803,7 @@
           }
           if (Array.isArray(data.salesList)) {
             salesList = data.salesList;
+            normalizeSalesList();
           }
           if (data.storeConfig && data.storeConfig.storeName) {
             storeConfig = data.storeConfig;
@@ -790,7 +833,7 @@
       } catch (err) {
         console.error('Fetch sync error:', err);
         updateSyncBadge('error', 'Sync Connection Failed');
-        if (showToast) alert('Google Sheet se data load nahi ho paya. Web App URL aur permissions check karein.');
+        if (showToast) alert('Google Sheet se data load nahi ho paya.');
       } finally {
         isSyncing = false;
       }
@@ -865,6 +908,8 @@
       });
 
       const totalSalesAmount = catSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const totalPaidAmount = catSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
+      const totalDueAmount = catSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
       const totalDiscountGiven = catSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
 
       return {
@@ -875,8 +920,52 @@
         totalAvailable,
         totalRemainingValue,
         totalSalesAmount,
+        totalPaidAmount,
+        totalDueAmount,
         totalDiscountGiven
       };
+    }
+
+    // ==================== LOW STOCK ALERT BANNER ====================
+    function renderLowStockAlert() {
+      const bannerEl = document.getElementById('lowStockAlertBanner');
+      if (!bannerEl) return;
+
+      const lowItems = [];
+      Object.keys(stockConfig).forEach(cat => {
+        const m = calculateCategoryMetrics(cat);
+        m.rows.forEach(r => {
+          // Alert if opening > 0 (active item) and available <= LOW_STOCK_THRESHOLD
+          if (r.opening > 0 && r.available <= LOW_STOCK_THRESHOLD) {
+            lowItems.push({ category: cat, size: r.size, available: r.available });
+          }
+        });
+      });
+
+      if (lowItems.length === 0) {
+        bannerEl.classList.add('hidden');
+        bannerEl.innerHTML = '';
+        return;
+      }
+
+      const tagsHTML = lowItems.map(item => `
+        <span class="inline-flex items-center gap-1 bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold px-2.5 py-1 rounded-full">
+          ${escapeHTML(item.category)} (Size ${escapeHTML(item.size)}): ${item.available} Pcs left
+        </span>
+      `).join('');
+
+      bannerEl.classList.remove('hidden');
+      bannerEl.innerHTML = `
+        <div class="bg-rose-50 border border-rose-300 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center gap-2.5 shadow-xs">
+          <div class="flex items-center gap-2 shrink-0 text-rose-800 font-bold text-xs uppercase tracking-wider">
+            <span class="w-2.5 h-2.5 rounded-full bg-rose-600 animate-ping"></span>
+            <span>Low Stock Alert (${lowItems.length}):</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            ${tagsHTML}
+          </div>
+        </div>
+      `;
     }
 
     function renderSummaryCards() {
@@ -885,7 +974,8 @@
       let grandSold = 0;
       let grandAvailable = 0;
       let grandSalesAmt = 0;
-      let grandDiscount = 0;
+      let grandPaidAmt = 0;
+      let grandDueAmt = 0;
 
       const breakdownOpening = [];
       const breakdownSold = [];
@@ -897,7 +987,8 @@
         grandSold += m.totalSold;
         grandAvailable += m.totalAvailable;
         grandSalesAmt += m.totalSalesAmount;
-        grandDiscount += m.totalDiscountGiven;
+        grandPaidAmt += m.totalPaidAmount;
+        grandDueAmt += m.totalDueAmount;
 
         breakdownOpening.push(`${cat}: ${m.totalOpening}`);
         breakdownSold.push(`${cat}: ${m.totalSold}`);
@@ -911,19 +1002,19 @@
           <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownOpening.join(' | ')}">${breakdownOpening.join(' | ') || 'No products'}</p>
         </div>
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Sold</p>
-          <p class="text-2xl font-bold text-amber-600 mt-1">${grandSold} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
-          <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownSold.join(' | ')}">${breakdownSold.join(' | ') || '0 sold'}</p>
-        </div>
-        <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Available Stock</p>
-          <p class="text-2xl font-bold text-emerald-600 mt-1">${grandAvailable} <span class="text-sm font-normal text-slate-500">Pcs</span></p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Sold / Available</p>
+          <p class="text-2xl font-bold text-emerald-600 mt-1">${grandAvailable} <span class="text-xs font-semibold text-amber-600">(${grandSold} Sold)</span></p>
           <p class="text-xs text-slate-500 mt-1 truncate" title="${breakdownAvail.join(' | ')}">${breakdownAvail.join(' | ') || '0 available'}</p>
         </div>
         <div class="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Net Sales Revenue</p>
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Net Sales &amp; Collected</p>
           <p class="text-2xl font-bold text-blue-900 mt-1">${formatINR(grandSalesAmt)}</p>
-          <p class="text-xs text-slate-500 mt-1 truncate">Discount Given: <span class="text-rose-600 font-semibold">${formatINR(grandDiscount)}</span></p>
+          <p class="text-xs text-emerald-700 font-semibold mt-1">Cash/UPI Received: ${formatINR(grandPaidAmt)}</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl border ${grandDueAmt > 0 ? 'border-rose-300 bg-rose-50/30' : 'border-slate-200'} shadow-sm cursor-pointer hover:border-rose-400 transition" onclick="switchTab('PendingDues')">
+          <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">Pending Dues (Udhaar)</p>
+          <p class="text-2xl font-bold ${grandDueAmt > 0 ? 'text-rose-600' : 'text-slate-800'} mt-1">${formatINR(grandDueAmt)}</p>
+          <p class="text-xs text-blue-800 font-semibold mt-1 underline">View Pending Dues List &rarr;</p>
         </div>
       `;
       document.getElementById('summaryCards').innerHTML = cardsHTML;
@@ -933,51 +1024,101 @@
       const navBar = document.getElementById('navTabsBar');
       if (!navBar) return;
 
+      const pendingCount = salesList.filter(s => Number(s.dueAmount) > 0).length;
+
+      const fixedLeftTabs = [
+        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800' }
+      ];
+
       const categories = Object.keys(stockConfig);
       const catButtons = categories.map(cat => {
         const isActive = currentTab === cat;
         return `
-          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3.5 px-4 text-sm sm:text-base transition ${isActive ? 'tab-active' : 'tab-inactive'}">
-            ${escapeHTML(cat)} Stock &amp; Sales
+          <button onclick="switchTab('${escapeHTML(cat)}')" class="py-3 px-3.5 text-xs sm:text-sm transition ${isActive ? 'tab-active' : 'tab-inactive'}">
+            ${escapeHTML(cat)}
           </button>
         `;
       }).join('');
 
-      const fixedTabs = [
-        { id: 'AddProduct', label: '+ Add / Manage Products', badge: 'NEW' },
-        { id: 'Summary', label: 'Overall Summary' },
-        { id: 'Receipt', label: 'Print Receipt (A4 PDF)' },
-        { id: 'SyncSetup', label: 'Sync & Settings', dot: true }
+      const fixedRightTabs = [
+        { id: 'PendingDues', label: 'Pending Dues', count: pendingCount },
+        { id: 'DailyClosing', label: 'Daily Closing' },
+        { id: 'AddProduct', label: '+ Products' },
+        { id: 'Summary', label: 'Summary' },
+        { id: 'Receipt', label: 'A4 Receipt' }
       ];
 
-      const fixedButtons = fixedTabs.map(t => {
+      // Hide Sync & Settings tab from non-Admin employees
+      if (isAdminUser()) {
+        fixedRightTabs.push({ id: 'SyncSetup', label: 'Settings', dot: true });
+      }
+
+      const leftHTML = fixedLeftTabs.map(t => {
         const isActive = currentTab === t.id;
         return `
-          <button onclick="switchTab('${t.id}')" class="py-3.5 px-4 text-sm sm:text-base transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
+          <button onclick="switchTab('${t.id}')" class="py-3 px-3.5 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'}">
             <span>${t.label}</span>
-            ${t.badge ? `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">${t.badge}</span>` : ''}
+            ${t.badge ? `<span class="${t.badgeColor} text-[9px] font-bold px-1.5 py-0.5 rounded-full">${t.badge}</span>` : ''}
+          </button>
+        `;
+      }).join('');
+
+      const rightHTML = fixedRightTabs.map(t => {
+        const isActive = currentTab === t.id;
+        return `
+          <button onclick="switchTab('${t.id}')" class="py-3 px-3.5 text-xs sm:text-sm transition flex items-center gap-1.5 ${isActive ? 'tab-active' : 'tab-inactive'} ${t.id === 'SyncSetup' ? 'ml-auto' : ''}">
+            <span>${t.label}</span>
+            ${t.count > 0 ? `<span class="bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">${t.count}</span>` : ''}
             ${t.dot ? `<span id="setupTabDot" class="w-2 h-2 rounded-full ${googleScriptUrl ? 'bg-emerald-500' : 'bg-amber-500'}"></span>` : ''}
           </button>
         `;
       }).join('');
 
-      navBar.innerHTML = catButtons + fixedButtons;
+      navBar.innerHTML = leftHTML + catButtons + rightHTML;
     }
 
     function switchTab(tab) {
+      if (tab === 'SyncSetup' && !isAdminUser()) {
+        alert('Sirf Admin hi Settings access kar sakta hai.');
+        return;
+      }
       currentTab = tab;
       renderContent();
     }
 
     function openReceiptForSale(saleId) {
-      selectedReceiptSaleIds = [saleId];
+      const target = salesList.find(s => s.id === saleId);
+      if (target && target.invoiceGroupId) {
+        // Select all items belonging to the same combined POS invoice
+        selectedReceiptSaleIds = salesList
+          .filter(s => s.invoiceGroupId === target.invoiceGroupId)
+          .map(s => s.id);
+      } else {
+        selectedReceiptSaleIds = [saleId];
+      }
       switchTab('Receipt');
     }
 
     function renderContent() {
+      renderLowStockAlert();
       renderSummaryCards();
       renderNavigationTabs();
       const container = document.getElementById('tabContent');
+
+      if (currentTab === 'QuickPOS') {
+        renderQuickPOSTab(container);
+        return;
+      }
+
+      if (currentTab === 'PendingDues') {
+        renderPendingDuesTab(container);
+        return;
+      }
+
+      if (currentTab === 'DailyClosing') {
+        renderDailyClosingTab(container);
+        return;
+      }
 
       if (currentTab === 'AddProduct') {
         renderAddProductTab(container);
@@ -996,7 +1137,7 @@
 
       if (currentTab === 'Summary') {
         const categories = Object.keys(stockConfig);
-        let grandOpen = 0, grandSold = 0, grandAvail = 0, grandRemVal = 0, grandSales = 0, grandDisc = 0;
+        let grandOpen = 0, grandSold = 0, grandAvail = 0, grandRemVal = 0, grandSales = 0, grandPaid = 0, grandDue = 0, grandDisc = 0;
 
         const catRowsHTML = categories.map(cat => {
           const m = calculateCategoryMetrics(cat);
@@ -1005,6 +1146,8 @@
           grandAvail += m.totalAvailable;
           grandRemVal += m.totalRemainingValue;
           grandSales += m.totalSalesAmount;
+          grandPaid += m.totalPaidAmount;
+          grandDue += m.totalDueAmount;
           grandDisc += m.totalDiscountGiven;
 
           return `
@@ -1016,6 +1159,8 @@
               <td class="px-4 py-3 text-right">${formatINR(m.totalRemainingValue)}</td>
               <td class="px-4 py-3 text-right text-rose-600">${formatINR(m.totalDiscountGiven)}</td>
               <td class="px-4 py-3 text-right font-semibold text-blue-900">${formatINR(m.totalSalesAmount)}</td>
+              <td class="px-4 py-3 text-right font-semibold text-emerald-700">${formatINR(m.totalPaidAmount)}</td>
+              <td class="px-4 py-3 text-right font-semibold text-rose-600">${formatINR(m.totalDueAmount)}</td>
             </tr>
           `;
         }).join('');
@@ -1028,13 +1173,15 @@
                 <table class="min-w-full divide-y divide-slate-200 text-sm">
                   <thead class="bg-slate-800 text-white">
                     <tr>
-                      <th class="px-4 py-3 text-left font-semibold">Product Category</th>
-                      <th class="px-4 py-3 text-center font-semibold">Opening Stock</th>
-                      <th class="px-4 py-3 text-center font-semibold">Sold Pieces</th>
-                      <th class="px-4 py-3 text-center font-semibold">Available Stock</th>
-                      <th class="px-4 py-3 text-right font-semibold">Remaining Stock Value</th>
-                      <th class="px-4 py-3 text-right font-semibold">Total Discount</th>
-                      <th class="px-4 py-3 text-right font-semibold">Net Sales Amount</th>
+                      <th class="px-4 py-3 text-left font-semibold">Category</th>
+                      <th class="px-4 py-3 text-center font-semibold">Opening</th>
+                      <th class="px-4 py-3 text-center font-semibold">Sold</th>
+                      <th class="px-4 py-3 text-center font-semibold">Available</th>
+                      <th class="px-4 py-3 text-right font-semibold">Stock Value</th>
+                      <th class="px-4 py-3 text-right font-semibold">Discount</th>
+                      <th class="px-4 py-3 text-right font-semibold">Net Sales</th>
+                      <th class="px-4 py-3 text-right font-semibold">Collected</th>
+                      <th class="px-4 py-3 text-right font-semibold">Balance Due</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-slate-200 bg-white">
@@ -1049,6 +1196,8 @@
                       <td class="px-4 py-3 text-right">${formatINR(grandRemVal)}</td>
                       <td class="px-4 py-3 text-right text-rose-700">${formatINR(grandDisc)}</td>
                       <td class="px-4 py-3 text-right">${formatINR(grandSales)}</td>
+                      <td class="px-4 py-3 text-right text-emerald-800">${formatINR(grandPaid)}</td>
+                      <td class="px-4 py-3 text-right text-rose-700">${formatINR(grandDue)}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1064,9 +1213,10 @@
         return;
       }
 
+      // ==================== SINGLE CATEGORY TAB ====================
       const category = currentTab;
       if (!stockConfig[category]) {
-        currentTab = Object.keys(stockConfig)[0] || 'AddProduct';
+        currentTab = 'QuickPOS';
         renderContent();
         return;
       }
@@ -1076,34 +1226,48 @@
         .map(item => `<option value="${escapeHTML(item.size)}" data-price="${item.price}">Size ${escapeHTML(item.size)} (${formatINR(item.price)})</option>`)
         .join('');
 
-      const stockRowsHTML = metrics.rows.map(r => `
-        <tr class="hover:bg-slate-50">
+      const adminCanEdit = isAdminUser();
+
+      const stockRowsHTML = metrics.rows.map(r => {
+        const isLow = r.opening > 0 && r.available <= LOW_STOCK_THRESHOLD;
+        return `
+        <tr class="${isLow ? 'bg-rose-50/80 hover:bg-rose-100/70' : 'hover:bg-slate-50'}">
           <td class="px-3 py-2.5 text-center text-slate-600">${r.sno}</td>
-          <td class="px-3 py-2.5 text-center font-bold text-slate-900">${escapeHTML(r.size)}</td>
-          <td class="px-3 py-2.5 text-center">
-            <input type="number" min="0" value="${r.price}"
-              onchange="updateProductPrice('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
-              class="w-20 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
-              title="Edit Unit Price" />
+          <td class="px-3 py-2.5 text-center font-bold text-slate-900">
+            ${escapeHTML(r.size)}
+            ${isLow ? `<span class="ml-1 text-[10px] bg-rose-600 text-white px-1.5 py-0.5 rounded font-bold">LOW</span>` : ''}
           </td>
           <td class="px-3 py-2.5 text-center">
-            <input type="number" min="0" value="${r.opening}"
-              onchange="updateOpeningStock('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
-              class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
-              title="Edit Opening Stock" />
+            ${adminCanEdit ? `
+              <input type="number" min="0" value="${r.price}"
+                onchange="updateProductPrice('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
+                class="w-20 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
+                title="Admin: Edit Unit Price" />
+            ` : `<span class="font-semibold text-slate-800">${formatINR(r.price)}</span>`}
+          </td>
+          <td class="px-3 py-2.5 text-center">
+            ${adminCanEdit ? `
+              <input type="number" min="0" value="${r.opening}"
+                onchange="updateOpeningStock('${escapeHTML(category)}', '${escapeHTML(r.size)}', this.value)"
+                class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-sm focus:outline-none focus:border-blue-700"
+                title="Admin: Edit Opening Stock" />
+            ` : `<span class="font-medium text-slate-700">${r.opening}</span>`}
           </td>
           <td class="px-3 py-2.5 text-center font-semibold text-amber-600">${r.sold}</td>
-          <td class="px-3 py-2.5 text-center font-bold ${r.available < 0 ? 'text-rose-600' : 'text-emerald-700'}">${r.available}</td>
+          <td class="px-3 py-2.5 text-center font-bold ${r.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">${r.available}</td>
           <td class="px-3 py-2.5 text-right font-medium text-slate-800">${formatINR(r.stockValue)}</td>
         </tr>
-      `).join('');
+      `}).join('');
 
       container.innerHTML = `
         <div class="space-y-8">
+          <!-- Section 1: Live Stock Table -->
           <div>
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-1">
               <h2 class="text-lg font-bold text-slate-800">${escapeHTML(category)} Live Stock &amp; Price List</h2>
-              <span class="text-xs text-slate-500">Tip: Unit Price ya Opening Stock box par click karke directly update kar sakte hain (Auto-Syncs)</span>
+              <span class="text-xs text-slate-500">
+                ${adminCanEdit ? 'Admin Mode: Unit Price ya Opening Stock edit kar sakte hain' : 'Staff Mode: Stock & Price locked (Sirf Admin edit kar sakta hai)'}
+              </span>
             </div>
             <div class="overflow-x-auto border border-slate-200 rounded-lg">
               <table class="min-w-full divide-y divide-slate-200 text-sm">
@@ -1134,22 +1298,33 @@
             </div>
           </div>
 
+          <!-- Section 2: Quick Single-Item Sale Entry Form (With Discount & Partial Payment) -->
           <div class="bg-amber-50/70 border border-amber-200 rounded-xl p-4 sm:p-5">
-            <h3 class="text-base font-bold text-slate-900 mb-3">New ${escapeHTML(category)} Sale Entry (Stock Auto-Update + Discount Option)</h3>
-            <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 class="text-base font-bold text-slate-900">New ${escapeHTML(category)} Sale Entry</h3>
+              <button type="button" onclick="switchTab('QuickPOS')" class="text-xs font-bold text-blue-800 hover:underline">
+                Ek saath multiple items (Shirt + Coat + Sweater) bechne ke liye Quick POS kholein &rarr;
+              </button>
+            </div>
+            <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
                 <input type="date" id="saleDate" value="${getTodayDate()}" required
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Customer / Student) *</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Name) *</label>
                 <input type="text" id="saleSoldTo" placeholder="Customer / Student Name" required
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile / Class / Roll (Optional)</label>
-                <input type="text" id="saleCustomerMeta" placeholder="e.g. Class 5-A / 98765xxxxx"
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile No. (For WhatsApp)</label>
+                <input type="tel" id="saleCustomerPhone" placeholder="e.g. 9876543210"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Class / Roll / Note</label>
+                <input type="text" id="saleCustomerMeta" placeholder="e.g. Class 5-A / Roll 12"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
@@ -1165,9 +1340,14 @@
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-rose-700 mb-1">Add Discount (Optional) ₹</label>
-                <input type="number" id="saleDiscount" min="0" value="0" placeholder="0" oninput="updateFormPreview('${escapeHTML(category)}')"
+                <label class="block text-xs font-semibold text-rose-700 mb-1">Add Discount (₹)</label>
+                <input type="number" id="saleDiscount" min="0" value="0" oninput="updateFormPreview('${escapeHTML(category)}')"
                   class="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-600" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Paid Amount Now (₹) *</label>
+                <input type="number" id="salePaidAmount" min="0" value="0" oninput="window._userEditedPaid=true; updateFormPreview('${escapeHTML(category)}')" required
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Mode</label>
@@ -1180,21 +1360,17 @@
                 </select>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Sold By</label>
-                <input type="text" id="saleSoldBy" value="${escapeHTML(currentSession ? currentSession.displayName : '')}" placeholder="Staff / Seller Name"
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
-              </div>
-              <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Amount In Hand Of</label>
-                <input type="text" id="saleInHand" placeholder="Cash Holder Name"
+                <input type="text" id="saleInHand" value="${escapeHTML(currentSession ? currentSession.displayName : '')}" placeholder="Cash Holder Name"
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
 
-              <div class="sm:col-span-2 lg:col-span-3 flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/80 mt-1">
-                <div class="text-xs text-slate-700 space-x-3">
+              <div class="sm:col-span-2 lg:col-span-5 flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-amber-200/80 mt-1">
+                <div class="text-xs text-slate-700 flex flex-wrap gap-3">
                   <span>Subtotal: <strong id="previewSubAmt">₹0</strong></span>
                   <span class="text-rose-600">Discount: <strong id="previewDiscAmt">-₹0</strong></span>
-                  <span class="text-sm">Final Bill: <strong id="previewAmtLabel" class="text-blue-900 text-base">₹0</strong></span>
+                  <span>Final Bill: <strong id="previewAmtLabel" class="text-blue-900 text-sm">₹0</strong></span>
+                  <span>Balance Due: <strong id="previewDueAmt" class="text-rose-600 text-sm">₹0</strong></span>
                 </div>
                 <div class="flex flex-wrap gap-2">
                   <button type="submit" onclick="window._openReceiptAfterSave = false"
@@ -1202,14 +1378,15 @@
                     + Add Sale (<span id="previewAmt">₹0</span>)
                   </button>
                   <button type="submit" onclick="window._openReceiptAfterSave = true"
-                    class="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm px-4 py-2.5 rounded-lg shadow transition flex items-center gap-1.5">
-                    <span>+ Add Sale &amp; Print A4 Receipt</span>
+                    class="bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-sm px-4 py-2.5 rounded-lg shadow transition">
+                    + Save &amp; Print A4 Receipt
                   </button>
                 </div>
               </div>
             </form>
           </div>
 
+          <!-- Section 3: Sales Register Table -->
           <div>
             <h3 class="text-lg font-bold text-slate-800 mb-3">${escapeHTML(category)} Sales Register</h3>
             ${renderSalesTable(metrics.catSales, false)}
@@ -1217,7 +1394,706 @@
         </div>
       `;
 
+      window._userEditedPaid = false;
       updateFormPreview(category);
+    }
+
+    // ==================== QUICK POS / MULTI-ITEM CART TAB ====================
+    function renderQuickPOSTab(container) {
+      const categories = Object.keys(stockConfig);
+      const firstCat = categories[0] || '';
+      const catOptions = categories.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('');
+
+      const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
+      const cartTotalPcs = posCartItems.reduce((s, item) => s + item.pieces, 0);
+
+      const cartRowsHTML = posCartItems.length ? posCartItems.map((item, idx) => `
+        <tr class="border-b border-slate-200 hover:bg-slate-50">
+          <td class="py-2.5 px-3 text-center text-slate-500">${idx + 1}</td>
+          <td class="py-2.5 px-3 font-bold text-slate-900">${escapeHTML(item.category)}</td>
+          <td class="py-2.5 px-3 text-center font-semibold">${escapeHTML(item.size)}</td>
+          <td class="py-2.5 px-3 text-center font-bold text-amber-700">${item.pieces}</td>
+          <td class="py-2.5 px-3 text-right">${formatINR(item.rate)}</td>
+          <td class="py-2.5 px-3 text-right font-bold text-blue-900">${formatINR(item.pieces * item.rate)}</td>
+          <td class="py-2.5 px-3 text-center">
+            <button type="button" onclick="removePosCartItem(${idx})" class="text-xs text-rose-600 hover:text-rose-800 font-bold">
+              Remove
+            </button>
+          </td>
+        </tr>
+      `).join('') : `
+        <tr>
+          <td colspan="7" class="py-8 text-center text-xs text-slate-500">
+            Cart khali hai. Upar se items (jaise Sweater, Coat, Shirt) chunein aur <strong>+ Add to Bill Cart</strong> dabayein.
+          </td>
+        </tr>
+      `;
+
+      container.innerHTML = `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <!-- Left: Item Picker & Cart -->
+          <div class="lg:col-span-7 space-y-5">
+            <div class="bg-blue-50/70 border border-blue-200 rounded-xl p-4 space-y-3">
+              <div class="flex items-center justify-between">
+                <h2 class="text-base font-bold text-blue-950">Step 1: Add Items to Customer Bill</h2>
+                <span class="text-xs font-semibold text-blue-800">Multi-Item POS</span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Product</label>
+                  <select id="posCategory" onchange="updatePosSizeOptions()"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-blue-800">
+                    ${catOptions}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Size &amp; Rate</label>
+                  <select id="posSize"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Pieces</label>
+                  <input type="number" id="posPieces" min="1" value="1"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+                </div>
+                <div>
+                  <button type="button" onclick="addItemToPosCart()"
+                    class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm py-2 px-3 rounded-lg shadow transition">
+                    + Add to Cart
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Cart Table -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <div class="bg-slate-800 text-white px-4 py-2.5 flex items-center justify-between text-xs font-bold">
+                <span>Selected Items in Current Bill (${posCartItems.length} Lines / ${cartTotalPcs} Pcs)</span>
+                ${posCartItems.length ? `<button type="button" onclick="clearPosCart()" class="text-rose-300 hover:text-rose-200 underline">Clear All</button>` : ''}
+              </div>
+              <div class="overflow-x-auto">
+                <table class="min-w-full text-sm bg-white">
+                  <thead class="bg-slate-100 text-slate-700 text-xs font-bold">
+                    <tr>
+                      <th class="py-2 px-3 text-center">#</th>
+                      <th class="py-2 px-3 text-left">Item</th>
+                      <th class="py-2 px-3 text-center">Size</th>
+                      <th class="py-2 px-3 text-center">Pcs</th>
+                      <th class="py-2 px-3 text-right">Rate</th>
+                      <th class="py-2 px-3 text-right">Amount</th>
+                      <th class="py-2 px-3 text-center">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>${cartRowsHTML}</tbody>
+                  <tfoot class="bg-slate-100 font-bold text-slate-900 border-t border-slate-300">
+                    <tr>
+                      <td colspan="3" class="py-2.5 px-3 text-right">Cart Subtotal</td>
+                      <td class="py-2.5 px-3 text-center">${cartTotalPcs} Pcs</td>
+                      <td></td>
+                      <td class="py-2.5 px-3 text-right text-blue-950">${formatINR(cartSubtotal)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Customer & Checkout Details -->
+          <form onsubmit="completePosCheckout(event)" class="lg:col-span-5 bg-amber-50/70 border border-amber-200 rounded-xl p-4 sm:p-5 space-y-3.5">
+            <h2 class="text-base font-bold text-slate-900">Step 2: Customer, Discount &amp; Payment</h2>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+                <input type="date" id="posDate" value="${getTodayDate()}" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Customer / Student Name *</label>
+                <input type="text" id="posSoldTo" placeholder="Enter Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Mobile No. (WhatsApp)</label>
+                <input type="tel" id="posCustomerPhone" placeholder="e.g. 9876543210"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Class / Roll / Note</label>
+                <input type="text" id="posCustomerMeta" placeholder="e.g. Class 6-B"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-rose-700 mb-1">Total Discount (₹)</label>
+                <input type="number" id="posDiscount" min="0" value="0" oninput="recalcPosTotals(false)"
+                  class="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-rose-600" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Amount Paid Now (₹) *</label>
+                <input type="number" id="posPaidAmount" min="0" value="${cartSubtotal}" oninput="recalcPosTotals(true)" required
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Mode</label>
+                <select id="posPaymentMode"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800">
+                  <option value="Cash">Cash</option>
+                  <option value="UPI / Online">UPI / Online</option>
+                  <option value="Card">Card</option>
+                  <option value="Due / Credit">Due / Credit</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Amount In Hand Of</label>
+                <input type="text" id="posInHand" value="${escapeHTML(currentSession ? currentSession.displayName : '')}"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+              </div>
+            </div>
+
+            <!-- Summary Box -->
+            <div class="bg-white border border-slate-300 rounded-xl p-3.5 space-y-1.5 text-xs">
+              <div class="flex justify-between text-slate-600">
+                <span>Cart Subtotal:</span>
+                <strong>${formatINR(cartSubtotal)}</strong>
+              </div>
+              <div class="flex justify-between text-rose-600">
+                <span>Discount Applied:</span>
+                <strong id="posSummaryDiscount">-₹0</strong>
+              </div>
+              <div class="flex justify-between text-sm font-bold text-blue-950 border-t border-slate-200 pt-1.5">
+                <span>Net Payable Bill:</span>
+                <span id="posSummaryNet">${formatINR(cartSubtotal)}</span>
+              </div>
+              <div class="flex justify-between text-xs font-bold text-rose-600">
+                <span>Balance Due (Udhaar):</span>
+                <span id="posSummaryDue">₹0</span>
+              </div>
+            </div>
+
+            <div class="flex flex-col sm:flex-row gap-2 pt-1">
+              <button type="submit" onclick="window._posOpenReceipt = false"
+                class="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
+                Complete Sale
+              </button>
+              <button type="submit" onclick="window._posOpenReceipt = true"
+                class="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
+                Save &amp; Print A4 Bill
+              </button>
+            </div>
+          </form>
+        </div>
+      `;
+
+      updatePosSizeOptions();
+      window._posPaidManuallyEdited = false;
+      recalcPosTotals(false);
+    }
+
+    function updatePosSizeOptions() {
+      const catEl = document.getElementById('posCategory');
+      const sizeEl = document.getElementById('posSize');
+      if (!catEl || !sizeEl) return;
+
+      const cat = catEl.value;
+      const items = stockConfig[cat] || [];
+      const metrics = calculateCategoryMetrics(cat);
+
+      sizeEl.innerHTML = items.map(item => {
+        const row = metrics.rows.find(r => r.size === item.size);
+        const avail = row ? row.available : item.opening;
+        return `<option value="${escapeHTML(item.size)}">Size ${escapeHTML(item.size)} — ${formatINR(item.price)} (${avail} left)</option>`;
+      }).join('');
+    }
+
+    function addItemToPosCart() {
+      const catEl = document.getElementById('posCategory');
+      const sizeEl = document.getElementById('posSize');
+      const pcsEl = document.getElementById('posPieces');
+      if (!catEl || !sizeEl || !pcsEl) return;
+
+      const category = catEl.value;
+      const size = String(sizeEl.value);
+      const pieces = Math.max(1, Number(pcsEl.value) || 1);
+
+      const itemObj = (stockConfig[category] || []).find(i => String(i.size) === size);
+      if (!itemObj) return;
+
+      const existing = posCartItems.find(c => c.category === category && c.size === size);
+      if (existing) {
+        existing.pieces += pieces;
+      } else {
+        posCartItems.push({
+          category,
+          size,
+          pieces,
+          rate: Number(itemObj.price) || 0
+        });
+      }
+
+      renderContent();
+    }
+
+    function removePosCartItem(idx) {
+      posCartItems.splice(idx, 1);
+      renderContent();
+    }
+
+    function clearPosCart() {
+      posCartItems = [];
+      renderContent();
+    }
+
+    function recalcPosTotals(isManualPaidEdit) {
+      if (isManualPaidEdit) window._posPaidManuallyEdited = true;
+
+      const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
+      const discEl = document.getElementById('posDiscount');
+      const paidEl = document.getElementById('posPaidAmount');
+
+      const rawDisc = Math.max(0, Number(discEl ? discEl.value : 0) || 0);
+      const appliedDisc = Math.min(cartSubtotal, rawDisc);
+      const netBill = Math.max(0, cartSubtotal - appliedDisc);
+
+      if (paidEl && !window._posPaidManuallyEdited) {
+        paidEl.value = netBill;
+      }
+
+      const paidVal = Math.min(netBill, Math.max(0, Number(paidEl ? paidEl.value : netBill) || 0));
+      const dueVal = Math.max(0, netBill - paidVal);
+
+      const discSpan = document.getElementById('posSummaryDiscount');
+      const netSpan = document.getElementById('posSummaryNet');
+      const dueSpan = document.getElementById('posSummaryDue');
+      if (discSpan) discSpan.textContent = '-' + formatINR(appliedDisc);
+      if (netSpan) netSpan.textContent = formatINR(netBill);
+      if (dueSpan) dueSpan.textContent = formatINR(dueVal);
+    }
+
+    function completePosCheckout(e) {
+      e.preventDefault();
+      if (!posCartItems.length) {
+        alert('Pehle cart mein kam se kam 1 item add karein!');
+        return;
+      }
+
+      const date = document.getElementById('posDate').value;
+      const soldTo = document.getElementById('posSoldTo').value.trim();
+      const customerPhone = document.getElementById('posCustomerPhone').value.trim();
+      const customerMeta = document.getElementById('posCustomerMeta').value.trim();
+      const paymentMode = document.getElementById('posPaymentMode').value;
+      const inHandOf = document.getElementById('posInHand').value.trim();
+      const soldBy = currentSession ? currentSession.displayName : 'Staff';
+
+      const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
+      const rawDisc = Math.max(0, Number(document.getElementById('posDiscount').value) || 0);
+      const totalDiscount = Math.min(cartSubtotal, rawDisc);
+      const netTotal = Math.max(0, cartSubtotal - totalDiscount);
+      const totalPaid = Math.min(netTotal, Math.max(0, Number(document.getElementById('posPaidAmount').value) || 0));
+
+      const invoiceGroupId = 'GRP-' + Date.now();
+      const createdIds = [];
+
+      // Distribute discount & paid amount proportionally across cart items
+      let remainingDisc = totalDiscount;
+      let remainingPaid = totalPaid;
+
+      posCartItems.forEach((item, idx) => {
+        const lineSub = item.pieces * item.rate;
+        let lineDisc = 0;
+        if (idx === posCartItems.length - 1) {
+          lineDisc = remainingDisc;
+        } else if (cartSubtotal > 0) {
+          lineDisc = Math.round((lineSub / cartSubtotal) * totalDiscount);
+          remainingDisc -= lineDisc;
+        }
+
+        const lineNet = Math.max(0, lineSub - lineDisc);
+        let linePaid = 0;
+        if (idx === posCartItems.length - 1) {
+          linePaid = remainingPaid;
+        } else if (netTotal > 0) {
+          linePaid = Math.round((lineNet / netTotal) * totalPaid);
+          remainingPaid -= linePaid;
+        }
+
+        const lineDue = Math.max(0, lineNet - linePaid);
+        const newId = `${Date.now()}_${idx}`;
+        createdIds.push(newId);
+
+        salesList.push({
+          id: newId,
+          invoiceGroupId,
+          date,
+          soldTo,
+          customerPhone,
+          customerMeta,
+          category: item.category,
+          size: item.size,
+          pieces: item.pieces,
+          rate: item.rate,
+          discount: lineDisc,
+          amount: lineNet,
+          paidAmount: linePaid,
+          dueAmount: lineDue,
+          paymentMode,
+          soldBy,
+          inHandOf
+        });
+      });
+
+      posCartItems = [];
+      saveDataAndSync();
+
+      if (window._posOpenReceipt) {
+        window._posOpenReceipt = false;
+        selectedReceiptSaleIds = createdIds;
+        switchTab('Receipt');
+      } else {
+        alert('Multi-item sale save ho gayi hai!');
+        renderContent();
+      }
+    }
+
+    // ==================== PENDING DUES (UDHAAR) TAB ====================
+    function renderPendingDuesTab(container) {
+      const dueSales = salesList.filter(s => Number(s.dueAmount) > 0);
+      const totalDueSum = dueSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
+
+      if (!dueSales.length) {
+        container.innerHTML = `
+          <div class="text-center py-12 bg-emerald-50/50 border border-dashed border-emerald-300 rounded-xl">
+            <p class="text-base font-bold text-emerald-900">Koi Pending Due (Udhaar) Baaki Nahi Hai!</p>
+            <p class="text-xs text-emerald-700 mt-1">Sabhi bills ka poora payment receive ho chuka hai.</p>
+          </div>
+        `;
+        return;
+      }
+
+      const rowsHTML = dueSales.slice().reverse().map(r => `
+        <tr class="hover:bg-rose-50/40">
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-900">
+            ${escapeHTML(r.soldTo)}
+            ${r.customerPhone ? `<div class="text-xs font-normal text-blue-800">Ph: ${escapeHTML(r.customerPhone)}</div>` : ''}
+            ${r.customerMeta ? `<div class="text-xs font-normal text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
+          </td>
+          <td class="px-3 py-2.5 text-center font-semibold">${escapeHTML(r.category)} (Size ${escapeHTML(r.size)}) &times; ${r.pieces}</td>
+          <td class="px-3 py-2.5 text-right font-semibold">${formatINR(r.amount)}</td>
+          <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">${formatINR(r.paidAmount)}</td>
+          <td class="px-3 py-2.5 text-right font-extrabold text-rose-600">${formatINR(r.dueAmount)}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1.5">
+            <button onclick="openCollectDueModal('${r.id}')"
+              class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold shadow-xs">
+              Collect Due
+            </button>
+            <button onclick="openReceiptForSale('${r.id}')"
+              class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1.5 rounded-lg font-semibold">
+              Receipt
+            </button>
+          </td>
+        </tr>
+      `).join('');
+
+      container.innerHTML = `
+        <div class="space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl p-4">
+            <div>
+              <h2 class="text-lg font-bold text-rose-950">Pending Dues / Balance Recovery List (${dueSales.length} Bills)</h2>
+              <p class="text-xs text-rose-800">Customer se baaki paisa milne par <strong>Collect Due</strong> button dabayein.</p>
+            </div>
+            <div class="text-right">
+              <span class="text-xs text-rose-700 uppercase font-bold">Total Market Due</span>
+              <p class="text-2xl font-extrabold text-rose-700">${formatINR(totalDueSum)}</p>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-lg">
+            <table class="min-w-full divide-y divide-slate-200 text-sm">
+              <thead class="bg-slate-800 text-white">
+                <tr>
+                  <th class="px-3 py-3 text-center font-semibold">Date</th>
+                  <th class="px-3 py-3 text-left font-semibold">Customer Details</th>
+                  <th class="px-3 py-3 text-center font-semibold">Item &amp; Qty</th>
+                  <th class="px-3 py-3 text-right font-semibold">Net Bill</th>
+                  <th class="px-3 py-3 text-right font-semibold">Paid</th>
+                  <th class="px-3 py-3 text-right font-semibold">Balance Due</th>
+                  <th class="px-3 py-3 text-center font-semibold">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 bg-white">${rowsHTML}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function openCollectDueModal(saleId) {
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale) return;
+
+      const body = document.getElementById('collectDueModalBody');
+      body.innerHTML = `
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
+          <p>Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong></p>
+          <p>Item: <strong>${escapeHTML(sale.category)} (Size ${escapeHTML(sale.size)}) &times; ${sale.pieces}</strong></p>
+          <p>Total Bill: <strong>${formatINR(sale.amount)}</strong> | Already Paid: <strong class="text-emerald-700">${formatINR(sale.paidAmount)}</strong></p>
+          <p class="text-sm text-rose-600 font-bold pt-1">Remaining Due: ${formatINR(sale.dueAmount)}</p>
+        </div>
+
+        <form onsubmit="submitDueCollection(event, '${sale.id}')" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Amount Received Now (₹) *</label>
+            <input type="number" id="dueReceiveInput" min="1" max="${sale.dueAmount}" value="${sale.dueAmount}" required
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Mode</label>
+            <select id="duePaymentMode" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="Cash">Cash</option>
+              <option value="UPI / Online">UPI / Online</option>
+              <option value="Card">Card</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Received By / In Hand Of</label>
+            <input type="text" id="dueInHandInput" value="${escapeHTML(currentSession ? currentSession.displayName : '')}"
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+          </div>
+          <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm py-2.5 rounded-lg shadow">
+            Confirm Payment &amp; Update Ledger
+          </button>
+        </form>
+      `;
+      document.getElementById('collectDueModal').classList.remove('hidden');
+    }
+
+    function closeCollectDueModal() {
+      document.getElementById('collectDueModal').classList.add('hidden');
+    }
+
+    function submitDueCollection(e, saleId) {
+      e.preventDefault();
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale) return;
+
+      const received = Math.min(Number(sale.dueAmount), Math.max(0, Number(document.getElementById('dueReceiveInput').value) || 0));
+      const mode = document.getElementById('duePaymentMode').value;
+      const hand = document.getElementById('dueInHandInput').value.trim();
+
+      sale.paidAmount = Number(sale.paidAmount) + received;
+      sale.dueAmount = Math.max(0, Number(sale.amount) - sale.paidAmount);
+      if (sale.dueAmount === 0) {
+        sale.paymentMode = mode;
+      }
+      if (hand) {
+        sale.inHandOf = hand;
+      }
+
+      saveDataAndSync();
+      closeCollectDueModal();
+      renderContent();
+      alert(`${formatINR(received)} jama kar liya gaya hai!`);
+    }
+
+    // ==================== SIZE EXCHANGE MODAL ====================
+    function openExchangeModal(saleId) {
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale) return;
+
+      const sizes = stockConfig[sale.category] || [];
+      const sizeOptions = sizes.map(item => `
+        <option value="${escapeHTML(item.size)}" ${String(item.size) === String(sale.size) ? 'selected' : ''}>
+          Size ${escapeHTML(item.size)} (${formatINR(item.price)})
+        </option>
+      `).join('');
+
+      const body = document.getElementById('exchangeModalBody');
+      body.innerHTML = `
+        <div class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs space-y-1">
+          <p>Customer: <strong>${escapeHTML(sale.soldTo)}</strong></p>
+          <p>Current Item: <strong>${escapeHTML(sale.category)} — Size ${escapeHTML(sale.size)} (${sale.pieces} Pcs)</strong></p>
+          <p class="text-slate-600">Size badalne par purana size stock mein wapas jud jayega aur naya size stock se minus ho jayega.</p>
+        </div>
+
+        <form onsubmit="submitSizeExchange(event, '${sale.id}')" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Select New Size *</label>
+            <select id="exchangeNewSize" required class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold">
+              ${sizeOptions}
+            </select>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-700">
+            <input type="checkbox" id="exchangeUpdateRate" checked class="rounded text-blue-900" />
+            <label for="exchangeUpdateRate">Naye size ke rate ke hisaab se bill amount update karein</label>
+          </div>
+          <button type="submit" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-sm py-2.5 rounded-lg shadow">
+            Confirm Size Exchange
+          </button>
+        </form>
+      `;
+      document.getElementById('exchangeModal').classList.remove('hidden');
+    }
+
+    function closeExchangeModal() {
+      document.getElementById('exchangeModal').classList.add('hidden');
+    }
+
+    function submitSizeExchange(e, saleId) {
+      e.preventDefault();
+      const sale = salesList.find(s => s.id === saleId);
+      if (!sale) return;
+
+      const newSize = String(document.getElementById('exchangeNewSize').value);
+      const updateRate = document.getElementById('exchangeUpdateRate').checked;
+
+      if (newSize === String(sale.size)) {
+        closeExchangeModal();
+        return;
+      }
+
+      const oldSize = sale.size;
+      sale.size = newSize;
+
+      if (updateRate) {
+        const sizeObj = (stockConfig[sale.category] || []).find(i => String(i.size) === newSize);
+        if (sizeObj) {
+          sale.rate = Number(sizeObj.price) || 0;
+          const sub = Number(sale.pieces) * sale.rate;
+          const disc = Math.min(sub, Number(sale.discount || 0));
+          sale.discount = disc;
+          sale.amount = Math.max(0, sub - disc);
+          sale.dueAmount = Math.max(0, sale.amount - Number(sale.paidAmount));
+        }
+      }
+
+      saveDataAndSync();
+      closeExchangeModal();
+      renderContent();
+      alert(`Size ${oldSize} se badalkar Size ${newSize} kar diya gaya hai aur stock auto-adjust ho gaya hai!`);
+    }
+
+    // ==================== DAILY CLOSING & CASH HANDOVER REPORT TAB ====================
+    function renderDailyClosingTab(container) {
+      const daySales = salesList.filter(s => s.date === closingFilterDate);
+
+      let dayNetSales = 0;
+      let dayCollected = 0;
+      let dayDue = 0;
+      let dayDiscount = 0;
+      let dayPieces = 0;
+
+      const byMode = {};
+      const byHand = {};
+
+      daySales.forEach(s => {
+        dayNetSales += Number(s.amount);
+        dayCollected += Number(s.paidAmount);
+        dayDue += Number(s.dueAmount);
+        dayDiscount += Number(s.discount || 0);
+        dayPieces += Number(s.pieces);
+
+        const mode = s.paymentMode || 'Cash';
+        byMode[mode] = (byMode[mode] || 0) + Number(s.paidAmount);
+
+        const hand = (s.inHandOf || 'Unassigned').trim();
+        byHand[hand] = (byHand[hand] || 0) + Number(s.paidAmount);
+      });
+
+      const modeRowsHTML = Object.keys(byMode).length ? Object.entries(byMode).map(([mode, amt]) => `
+        <tr class="border-b border-slate-200">
+          <td class="py-2.5 px-4 font-semibold text-slate-800">${escapeHTML(mode)}</td>
+          <td class="py-2.5 px-4 text-right font-bold text-emerald-700">${formatINR(amt)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="2" class="py-4 text-center text-xs text-slate-500">Is tareekh ko koi collection nahi hui.</td></tr>`;
+
+      const handRowsHTML = Object.keys(byHand).length ? Object.entries(byHand).map(([person, amt]) => `
+        <tr class="border-b border-slate-200">
+          <td class="py-2.5 px-4 font-semibold text-slate-900">${escapeHTML(person)}</td>
+          <td class="py-2.5 px-4 text-right font-bold text-blue-900">${formatINR(amt)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="2" class="py-4 text-center text-xs text-slate-500">Is tareekh ko kisi staff ke paas cash entry nahi hai.</td></tr>`;
+
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+            <div>
+              <h2 class="text-lg font-bold text-slate-900">Daily Cash Closing &amp; Handover Report</h2>
+              <p class="text-xs text-slate-600">Tareekh chunein aur dekhein aaj kitna Cash/UPI aaya aur kis staff ke paas kitna paisa jama hai.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-xs font-bold text-slate-700">Select Date:</label>
+              <input type="date" value="${closingFilterDate}" onchange="closingFilterDate = this.value; renderContent();"
+                class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:border-blue-800" />
+            </div>
+          </div>
+
+          <!-- Daily Summary Strip -->
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div class="bg-white border border-slate-200 rounded-xl p-3.5">
+              <p class="text-[11px] font-bold uppercase text-slate-500">Pieces Sold</p>
+              <p class="text-xl font-extrabold text-slate-900 mt-1">${dayPieces} Pcs</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-3.5">
+              <p class="text-[11px] font-bold uppercase text-slate-500">Net Billing</p>
+              <p class="text-xl font-extrabold text-blue-900 mt-1">${formatINR(dayNetSales)}</p>
+            </div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5">
+              <p class="text-[11px] font-bold uppercase text-emerald-800">Actual Collected</p>
+              <p class="text-xl font-extrabold text-emerald-700 mt-1">${formatINR(dayCollected)}</p>
+            </div>
+            <div class="bg-rose-50 border border-rose-200 rounded-xl p-3.5">
+              <p class="text-[11px] font-bold uppercase text-rose-800">New Dues (Udhaar)</p>
+              <p class="text-xl font-extrabold text-rose-600 mt-1">${formatINR(dayDue)}</p>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
+              <p class="text-[11px] font-bold uppercase text-amber-800">Discount Given</p>
+              <p class="text-xl font-extrabold text-amber-700 mt-1">${formatINR(dayDiscount)}</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Payment Mode Breakdown -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <div class="bg-slate-800 text-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider">
+                Collection by Payment Mode (${formatDateReadable(closingFilterDate)})
+              </div>
+              <table class="min-w-full text-sm bg-white">
+                <tbody>${modeRowsHTML}</tbody>
+                <tfoot class="bg-slate-100 font-bold">
+                  <tr>
+                    <td class="py-2.5 px-4">Total Collected</td>
+                    <td class="py-2.5 px-4 text-right text-emerald-800">${formatINR(dayCollected)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <!-- Staff Cash Handover Breakdown -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden">
+              <div class="bg-blue-950 text-white px-4 py-2.5 text-xs font-bold uppercase tracking-wider">
+                Amount In Hand Of (Staff Handover Summary)
+              </div>
+              <table class="min-w-full text-sm bg-white">
+                <tbody>${handRowsHTML}</tbody>
+                <tfoot class="bg-slate-100 font-bold">
+                  <tr>
+                    <td class="py-2.5 px-4">Total Handover</td>
+                    <td class="py-2.5 px-4 text-right text-blue-950">${formatINR(dayCollected)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <div>
+            <h3 class="text-base font-bold text-slate-800 mb-3">Sales Entries on ${formatDateReadable(closingFilterDate)} (${daySales.length})</h3>
+            ${renderSalesTable(daySales, true)}
+          </div>
+        </div>
+      `;
     }
 
     // ==================== ADD / MANAGE PRODUCTS TAB ====================
@@ -1243,6 +2119,8 @@
         });
       });
 
+      const adminCanEdit = isAdminUser();
+
       const tableHTML = allProductsRows.map((p, i) => `
         <tr class="hover:bg-slate-50">
           <td class="px-3 py-2.5 text-center text-slate-600">${i + 1}</td>
@@ -1250,13 +2128,15 @@
           <td class="px-3 py-2.5 text-center font-semibold text-slate-800">${escapeHTML(p.size)}</td>
           <td class="px-3 py-2.5 text-center">${p.opening}</td>
           <td class="px-3 py-2.5 text-center text-amber-600 font-semibold">${p.sold}</td>
-          <td class="px-3 py-2.5 text-center font-bold ${p.available < 0 ? 'text-rose-600' : 'text-emerald-700'}">${p.available}</td>
+          <td class="px-3 py-2.5 text-center font-bold ${p.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">${p.available}</td>
           <td class="px-3 py-2.5 text-right font-semibold text-blue-900">${formatINR(p.price)}</td>
           <td class="px-3 py-2.5 text-center">
-            <button onclick="deleteProductSize('${escapeHTML(p.category)}', '${escapeHTML(p.size)}')"
-              class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
-              Remove
-            </button>
+            ${adminCanEdit ? `
+              <button onclick="deleteProductSize('${escapeHTML(p.category)}', '${escapeHTML(p.size)}')"
+                class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
+                Remove
+              </button>
+            ` : `<span class="text-[11px] text-slate-400">Locked</span>`}
           </td>
         </tr>
       `).join('');
@@ -1376,6 +2256,10 @@
     }
 
     function deleteProductSize(category, size) {
+      if (!isAdminUser()) {
+        alert('Sirf Admin hi product remove kar sakta hai.');
+        return;
+      }
       if (!confirm(`Kya aap "${category} - Size ${size}" ko catalog se hatana chahte hain?`)) return;
       if (!stockConfig[category]) return;
 
@@ -1391,26 +2275,32 @@
       renderContent();
     }
 
-    // ==================== SALES TABLE ====================
+    // ==================== SALES REGISTER TABLE (WITH EXCHANGE & ROLE LOCK) ====================
     function renderSalesTable(records, showCategoryCol) {
       if (!records.length) {
         return `<div class="text-center py-8 bg-slate-50 border border-dashed border-slate-300 rounded-lg text-sm text-slate-500">
-          Abhi tak koi sale entry nahi hui hai. Upar form se pehli sale add karein.
+          Abhi tak koi sale entry nahi hui hai.
         </div>`;
       }
 
       const totalPcs = records.reduce((s, r) => s + Number(r.pieces), 0);
       const totalDisc = records.reduce((s, r) => s + Number(r.discount || 0), 0);
       const totalAmt = records.reduce((s, r) => s + Number(r.amount), 0);
+      const totalPaid = records.reduce((s, r) => s + Number(r.paidAmount), 0);
+      const totalDue = records.reduce((s, r) => s + Number(r.dueAmount), 0);
+
+      const adminCanDelete = isAdminUser();
 
       const rows = records.slice().reverse().map(r => {
         const disc = Number(r.discount || 0);
+        const due = Number(r.dueAmount || 0);
         return `
         <tr class="hover:bg-slate-50">
           <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
           <td class="px-3 py-2.5 font-medium text-slate-900">
             ${escapeHTML(r.soldTo)}
-            ${r.customerMeta ? `<div class="text-xs text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
+            ${r.customerPhone ? `<div class="text-[11px] text-blue-700">${escapeHTML(r.customerPhone)}</div>` : ''}
+            ${r.customerMeta ? `<div class="text-[11px] text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
           </td>
           ${showCategoryCol ? `<td class="px-3 py-2.5 text-center font-semibold">${escapeHTML(r.category)}</td>` : ''}
           <td class="px-3 py-2.5 text-center font-bold">${escapeHTML(r.size)}</td>
@@ -1418,16 +2308,23 @@
           <td class="px-3 py-2.5 text-center">${formatINR(r.rate)}</td>
           <td class="px-3 py-2.5 text-center text-rose-600 font-medium">${disc > 0 ? '-' + formatINR(disc) : '-'}</td>
           <td class="px-3 py-2.5 text-right font-bold text-blue-900">${formatINR(r.amount)}</td>
+          <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">${formatINR(r.paidAmount)}</td>
+          <td class="px-3 py-2.5 text-right font-bold ${due > 0 ? 'text-rose-600' : 'text-slate-400'}">${due > 0 ? formatINR(due) : '₹0'}</td>
           <td class="px-3 py-2.5 text-center text-xs font-medium text-slate-700">${escapeHTML(r.paymentMode || 'Cash')}</td>
-          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(r.soldBy || '-')}</td>
-          <td class="px-3 py-2.5 text-slate-700">${escapeHTML(r.inHandOf || '-')}</td>
-          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-2">
+          <td class="px-3 py-2.5 text-slate-700 text-xs">${escapeHTML(r.soldBy || '-')}</td>
+          <td class="px-3 py-2.5 text-slate-700 text-xs">${escapeHTML(r.inHandOf || '-')}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1.5">
             <button onclick="openReceiptForSale('${r.id}')" class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded font-semibold">
               Receipt
             </button>
-            <button onclick="deleteSaleEntry('${r.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold">
-              Delete
+            <button onclick="openExchangeModal('${r.id}')" class="text-xs bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300 px-2 py-1 rounded font-semibold">
+              Exchange
             </button>
+            ${adminCanDelete ? `
+              <button onclick="deleteSaleEntry('${r.id}')" class="text-xs text-rose-600 hover:text-rose-800 font-semibold px-1">
+                Delete
+              </button>
+            ` : ''}
           </td>
         </tr>
       `}).join('');
@@ -1441,14 +2338,16 @@
                 <th class="px-3 py-3 text-left font-semibold">Sold To</th>
                 ${showCategoryCol ? `<th class="px-3 py-3 text-center font-semibold">Item</th>` : ''}
                 <th class="px-3 py-3 text-center font-semibold">Size</th>
-                <th class="px-3 py-3 text-center font-semibold">Pieces</th>
-                <th class="px-3 py-3 text-center font-semibold">Rate (₹)</th>
-                <th class="px-3 py-3 text-center font-semibold">Discount</th>
-                <th class="px-3 py-3 text-right font-semibold">Final Amount</th>
+                <th class="px-3 py-3 text-center font-semibold">Pcs</th>
+                <th class="px-3 py-3 text-center font-semibold">Rate</th>
+                <th class="px-3 py-3 text-center font-semibold">Disc</th>
+                <th class="px-3 py-3 text-right font-semibold">Net Bill</th>
+                <th class="px-3 py-3 text-right font-semibold">Paid</th>
+                <th class="px-3 py-3 text-right font-semibold">Due</th>
                 <th class="px-3 py-3 text-center font-semibold">Mode</th>
                 <th class="px-3 py-3 text-left font-semibold">Sold By</th>
-                <th class="px-3 py-3 text-left font-semibold">Amount In Hand Of</th>
-                <th class="px-3 py-3 text-center font-semibold">Action</th>
+                <th class="px-3 py-3 text-left font-semibold">Hand Of</th>
+                <th class="px-3 py-3 text-center font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-200 bg-white">
@@ -1456,11 +2355,13 @@
             </tbody>
             <tfoot class="bg-slate-200 font-bold text-slate-900">
               <tr>
-                <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total Sales</td>
+                <td colspan="${showCategoryCol ? 4 : 3}" class="px-3 py-3 text-right">Total</td>
                 <td class="px-3 py-3 text-center">${totalPcs}</td>
-                <td class="px-3 py-3"></td>
+                <td></td>
                 <td class="px-3 py-3 text-center text-rose-700">-${formatINR(totalDisc)}</td>
                 <td class="px-3 py-3 text-right">${formatINR(totalAmt)}</td>
+                <td class="px-3 py-3 text-right text-emerald-800">${formatINR(totalPaid)}</td>
+                <td class="px-3 py-3 text-right text-rose-700">${formatINR(totalDue)}</td>
                 <td colspan="4"></td>
               </tr>
             </tfoot>
@@ -1469,8 +2370,10 @@
       `;
     }
 
-    // ==================== SYNC & SETTINGS TAB ====================
+    // ==================== ADMIN SETTINGS & SYNC TAB ====================
     function renderSyncSetupTab(container) {
+      if (!isAdminUser()) return;
+
       const appsScriptCode = `function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var dbSheet = ss.getSheetByName('DB_JSON');
@@ -1505,14 +2408,14 @@ function doPost(e) {
     salesSheet = ss.insertSheet('Sales_Register');
   }
   salesSheet.clear();
-  var headers = ['Date', 'Sold To', 'Customer Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Final Amount', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+  var headers = ['Date', 'Sold To', 'Mobile', 'Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
   salesSheet.appendRow(headers);
   salesSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
 
   if (payload.salesList && payload.salesList.length > 0) {
     var rows = payload.salesList.map(function(r) {
       var sub = Number(r.pieces) * Number(r.rate);
-      return [r.date, r.soldTo, r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
+      return [r.date, r.soldTo, r.customerPhone || '', r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paidAmount || 0, r.dueAmount || 0, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
     });
     salesSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
@@ -1523,7 +2426,6 @@ function doPost(e) {
 
       container.innerHTML = `
         <div class="max-w-4xl mx-auto space-y-6">
-          ${isAdminUser() ? `
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h3 class="text-sm font-bold text-slate-900">Admin &amp; Employee Password Management</h3>
@@ -1533,7 +2435,6 @@ function doPost(e) {
               Change Password / Users
             </button>
           </div>
-          ` : ''}
 
           <div class="bg-white border border-slate-300 rounded-xl p-5 space-y-3 shadow-sm">
             <label class="block text-sm font-bold text-slate-900">Google Apps Script Web App URL (Live Cloud Sync)</label>
@@ -1547,13 +2448,13 @@ function doPost(e) {
               </button>
             </div>
             <p class="text-xs text-slate-500">
-              <strong>Permanent URL Setup:</strong> File mein line 159 par <code>const DEFAULT_GOOGLE_SCRIPT_URL = "AAPKA_URL";</code> daal kar GitHub par commit karein taaki har phone par bina setup ke live sync chale.
+              Aapka Google Apps Script URL pehle se is file mein connected hai.
             </p>
           </div>
 
           <div class="bg-slate-50 border border-slate-200 rounded-xl p-5 space-y-3 text-sm text-slate-800">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Google Apps Script Code</span>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-600">Updated Google Apps Script Code (With Dues &amp; Phone Column)</span>
               <button onclick="copyAppsScriptCode()" class="text-xs bg-slate-800 hover:bg-slate-700 text-white px-3 py-1 rounded font-semibold">
                 Copy Code
               </button>
@@ -1561,7 +2462,6 @@ function doPost(e) {
             <pre id="appsScriptCodeBox" class="bg-slate-900 text-emerald-300 p-4 rounded-lg text-xs overflow-x-auto leading-relaxed">${escapeHTML(appsScriptCode)}</pre>
           </div>
 
-          ${isAdminUser() ? `
           <div class="bg-rose-50 border border-rose-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h4 class="text-sm font-bold text-rose-900">Danger Zone: Reset All Data</h4>
@@ -1571,7 +2471,6 @@ function doPost(e) {
               Reset Default Data
             </button>
           </div>
-          ` : ''}
         </div>
       `;
     }
@@ -1610,6 +2509,7 @@ function doPost(e) {
         if (data && data.status === 'ok' && ((Array.isArray(data.salesList) && data.salesList.length > 0) || data.stockConfig)) {
           stockConfig = data.stockConfig || stockConfig;
           salesList = data.salesList || salesList;
+          normalizeSalesList();
           storeConfig = data.storeConfig || storeConfig;
           if (Array.isArray(data.authUsers) && data.authUsers.length > 0) {
             authUsers = data.authUsers;
@@ -1625,17 +2525,17 @@ function doPost(e) {
         }
       } catch (e) {
         updateSyncBadge('error', 'Connection Error');
-        alert('Connection fail hua. Deploy permissions mein "Anyone" check karein.');
+        alert('Connection fail hua.');
       }
     }
 
-    // ==================== A4 PDF RECEIPT TAB ====================
+    // ==================== A4 PDF RECEIPT + WHATSAPP SHARE TAB ====================
     function renderReceiptTab(container) {
       if (!salesList.length) {
         container.innerHTML = `
           <div class="text-center py-12 bg-slate-50 border border-dashed border-slate-300 rounded-xl">
             <p class="text-base font-semibold text-slate-700">Abhi tak koi sale entry nahi hai!</p>
-            <p class="text-sm text-slate-500 mt-1">Pehle kisi bhi product tab se sale add karein, uske baad yahan A4 PDF receipt generate hogi.</p>
+            <p class="text-sm text-slate-500 mt-1">Pehle Quick POS ya kisi product tab se sale add karein, uske baad yahan A4 PDF receipt aur WhatsApp slip banegi.</p>
           </div>
         `;
         return;
@@ -1656,11 +2556,14 @@ function doPost(e) {
       const grandSubtotal = selectedSales.reduce((sum, s) => sum + (Number(s.pieces) * Number(s.rate)), 0);
       const grandDiscount = selectedSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
       const grandTotalAmount = selectedSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const grandPaidAmount = selectedSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
+      const grandDueAmount = selectedSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
       const amountInWords = numberToWordsINR(grandTotalAmount);
 
       const salesCheckboxRows = salesList.slice().reverse().map(s => {
         const isChecked = selectedReceiptSaleIds.includes(s.id);
         const disc = Number(s.discount || 0);
+        const due = Number(s.dueAmount || 0);
         return `
           <label class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${isChecked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-200 hover:bg-slate-50'}">
             <input type="checkbox" value="${s.id}" ${isChecked ? 'checked' : ''}
@@ -1674,9 +2577,7 @@ function doPost(e) {
               <div class="text-slate-600 mt-0.5">
                 ${escapeHTML(s.category)} (Size ${escapeHTML(s.size)}) &times; ${s.pieces} Pcs &bull; ${formatDateReadable(s.date)}
                 ${disc > 0 ? `<span class="text-rose-600 font-semibold"> (Disc: -${formatINR(disc)})</span>` : ''}
-              </div>
-              <div class="text-[11px] text-slate-400 mt-0.5">
-                Sold By: ${escapeHTML(s.soldBy || '-')} | Hand: ${escapeHTML(s.inHandOf || '-')}
+                ${due > 0 ? `<span class="text-rose-700 font-bold"> [Due: ${formatINR(due)}]</span>` : ''}
               </div>
             </div>
           </label>
@@ -1688,29 +2589,29 @@ function doPost(e) {
         const lineDisc = Number(item.discount || 0);
         return `
         <tr class="border-b border-slate-300">
-          <td class="py-3 px-3 text-center text-slate-700">${idx + 1}</td>
-          <td class="py-3 px-3 font-semibold text-slate-900">
+          <td class="py-2.5 px-3 text-center text-slate-700">${idx + 1}</td>
+          <td class="py-2.5 px-3 font-semibold text-slate-900">
             ${escapeHTML(item.category)}
             <div class="text-[11px] font-normal text-slate-500">
               Date: ${formatDateReadable(item.date)}${lineDisc > 0 ? ` &bull; Discount: -${formatINR(lineDisc)}` : ''}
             </div>
           </td>
-          <td class="py-3 px-3 text-center font-bold text-slate-800">${escapeHTML(item.size)}</td>
-          <td class="py-3 px-3 text-center font-semibold text-slate-800">${item.pieces}</td>
-          <td class="py-3 px-3 text-right text-slate-800">${formatINR(item.rate)}</td>
-          <td class="py-3 px-3 text-right font-bold text-slate-900">${formatINR(lineSub)}</td>
+          <td class="py-2.5 px-3 text-center font-bold text-slate-800">${escapeHTML(item.size)}</td>
+          <td class="py-2.5 px-3 text-center font-semibold text-slate-800">${item.pieces}</td>
+          <td class="py-2.5 px-3 text-right text-slate-800">${formatINR(item.rate)}</td>
+          <td class="py-2.5 px-3 text-right font-bold text-slate-900">${formatINR(lineSub)}</td>
         </tr>
       `}).join('');
 
       const fillerCount = Math.max(0, 4 - selectedSales.length);
       const fillerRowsHTML = Array(fillerCount).fill(`
         <tr class="border-b border-slate-200">
-          <td class="py-3.5 px-3">&nbsp;</td>
-          <td class="py-3.5 px-3"></td>
-          <td class="py-3.5 px-3"></td>
-          <td class="py-3.5 px-3"></td>
-          <td class="py-3.5 px-3"></td>
-          <td class="py-3.5 px-3"></td>
+          <td class="py-3 px-3">&nbsp;</td>
+          <td class="py-3 px-3"></td>
+          <td class="py-3 px-3"></td>
+          <td class="py-3 px-3"></td>
+          <td class="py-3 px-3"></td>
+          <td class="py-3 px-3"></td>
         </tr>
       `).join('');
 
@@ -1723,7 +2624,7 @@ function doPost(e) {
                 <span class="text-[11px] text-emerald-700 font-medium">Auto-Saves</span>
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Shop / School / Organization Name</label>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Shop / School Name</label>
                 <input type="text" value="${escapeHTML(storeConfig.storeName)}"
                   oninput="updateStoreConfig('storeName', this.value)"
                   class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
@@ -1758,20 +2659,23 @@ function doPost(e) {
 
             <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-bold text-slate-900">2. Select Sale Entry (Multi-Select Allowed)</h3>
+                <h3 class="text-sm font-bold text-slate-900">2. Select Sale Entries</h3>
                 <span class="text-xs font-semibold text-blue-900">${selectedSales.length} Selected</span>
               </div>
-              <p class="text-[11px] text-slate-500">Ek hi customer ne alag-alag items liye hon to dono tick karke ek combined A4 receipt bana sakte hain.</p>
-              <div class="max-h-72 overflow-y-auto space-y-2 pr-1">
+              <div class="max-h-60 overflow-y-auto space-y-2 pr-1">
                 ${salesCheckboxRows}
               </div>
             </div>
 
             <div class="bg-blue-950 text-white rounded-xl p-4 space-y-2.5 shadow">
-              <h3 class="text-sm font-bold">3. Download / Print A4 PDF</h3>
+              <h3 class="text-sm font-bold">3. Download, Print &amp; WhatsApp</h3>
               <button onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
                 class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
                 Download A4 PDF Receipt
+              </button>
+              <button onclick="sendReceiptOnWhatsApp('${receiptNo}')"
+                class="w-full bg-green-600 hover:bg-green-500 text-white font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
+                Send Receipt on WhatsApp
               </button>
               <button onclick="window.print()"
                 class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-sm py-2 px-4 rounded-lg transition">
@@ -1803,13 +2707,14 @@ function doPost(e) {
                 </div>
 
                 <div class="grid grid-cols-2 gap-4 my-5 bg-slate-50 border border-slate-300 rounded-lg p-3.5 text-xs">
-                  <div class="space-y-1.5">
+                  <div class="space-y-1">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Billed To (Customer Details)</p>
                     <p class="text-sm font-bold text-slate-900">${escapeHTML(primarySale.soldTo)}</p>
+                    ${primarySale.customerPhone ? `<p class="text-slate-700">Mobile: <strong>${escapeHTML(primarySale.customerPhone)}</strong></p>` : ''}
                     ${primarySale.customerMeta ? `<p class="text-slate-700">Details: <strong>${escapeHTML(primarySale.customerMeta)}</strong></p>` : ''}
                     <p class="text-slate-700">Payment Mode: <strong>${escapeHTML(primarySale.paymentMode || 'Cash')}</strong></p>
                   </div>
-                  <div class="space-y-1.5 border-l border-slate-300 pl-4">
+                  <div class="space-y-1 border-l border-slate-300 pl-4">
                     <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500">Counter &amp; Handling Info</p>
                     <p class="text-slate-700">Sold By: <strong>${escapeHTML(primarySale.soldBy || 'Counter Staff')}</strong></p>
                     <p class="text-slate-700">Amount In Hand Of: <strong>${escapeHTML(primarySale.inHandOf || 'Cash Counter')}</strong></p>
@@ -1835,20 +2740,30 @@ function doPost(e) {
                   <tfoot>
                     ${grandDiscount > 0 ? `
                     <tr class="bg-slate-50 text-slate-700 border-t border-slate-400">
-                      <td colspan="5" class="py-2 px-3 text-right font-semibold">Subtotal</td>
-                      <td class="py-2 px-3 text-right font-semibold">${formatINR(grandSubtotal)}</td>
+                      <td colspan="5" class="py-1.5 px-3 text-right font-semibold">Subtotal</td>
+                      <td class="py-1.5 px-3 text-right font-semibold">${formatINR(grandSubtotal)}</td>
                     </tr>
                     <tr class="bg-rose-50/60 text-rose-700">
-                      <td colspan="5" class="py-2 px-3 text-right font-semibold">Less: Discount</td>
-                      <td class="py-2 px-3 text-right font-bold">-${formatINR(grandDiscount)}</td>
+                      <td colspan="5" class="py-1.5 px-3 text-right font-semibold">Less: Discount</td>
+                      <td class="py-1.5 px-3 text-right font-bold">-${formatINR(grandDiscount)}</td>
                     </tr>
                     ` : ''}
                     <tr class="bg-slate-100 font-bold text-slate-900 border-t-2 border-slate-900">
-                      <td colspan="3" class="py-2.5 px-3 text-right uppercase">Net Payable Total</td>
-                      <td class="py-2.5 px-3 text-center text-sm">${grandTotalPieces} Pcs</td>
-                      <td class="py-2.5 px-3"></td>
-                      <td class="py-2.5 px-3 text-right text-base text-blue-950">${formatINR(grandTotalAmount)}</td>
+                      <td colspan="3" class="py-2 px-3 text-right uppercase">Net Payable Total</td>
+                      <td class="py-2 px-3 text-center text-sm">${grandTotalPieces} Pcs</td>
+                      <td class="py-2 px-3"></td>
+                      <td class="py-2 px-3 text-right text-base text-blue-950">${formatINR(grandTotalAmount)}</td>
                     </tr>
+                    <tr class="bg-emerald-50/60 font-semibold text-emerald-900 border-t border-slate-300">
+                      <td colspan="5" class="py-1.5 px-3 text-right">Amount Paid (${escapeHTML(primarySale.paymentMode || 'Cash')})</td>
+                      <td class="py-1.5 px-3 text-right font-bold">${formatINR(grandPaidAmount)}</td>
+                    </tr>
+                    ${grandDueAmount > 0 ? `
+                    <tr class="bg-rose-50 font-bold text-rose-700 border-t border-slate-300">
+                      <td colspan="5" class="py-1.5 px-3 text-right">Balance Due (Pending)</td>
+                      <td class="py-1.5 px-3 text-right">${formatINR(grandDueAmount)}</td>
+                    </tr>
+                    ` : ''}
                   </tfoot>
                 </table>
 
@@ -1857,13 +2772,13 @@ function doPost(e) {
                     <span class="text-slate-500 font-semibold">Amount in Words: </span>
                     <span class="font-bold text-slate-900 italic">${amountInWords}</span>
                   </div>
-                  <div class="text-right font-bold text-emerald-700">
-                    Status: PAID (${escapeHTML(primarySale.paymentMode || 'Cash')})
+                  <div class="text-right font-bold ${grandDueAmount > 0 ? 'text-rose-700' : 'text-emerald-700'}">
+                    Status: ${grandDueAmount > 0 ? 'PARTIAL / DUE' : 'PAID IN FULL'}
                   </div>
                 </div>
               </div>
 
-              <div class="pt-12">
+              <div class="pt-10">
                 <div class="grid grid-cols-2 gap-8 text-xs text-slate-700 mb-6">
                   <div>
                     <div class="border-b border-slate-400 w-48 h-10"></div>
@@ -1884,6 +2799,53 @@ function doPost(e) {
           </div>
         </div>
       `;
+    }
+
+    function sendReceiptOnWhatsApp(receiptNo) {
+      const selectedSales = salesList.filter(s => selectedReceiptSaleIds.includes(s.id));
+      if (!selectedSales.length) return;
+
+      const primarySale = selectedSales[0];
+      const grandSubtotal = selectedSales.reduce((sum, s) => sum + (Number(s.pieces) * Number(s.rate)), 0);
+      const grandDiscount = selectedSales.reduce((sum, s) => sum + Number(s.discount || 0), 0);
+      const grandTotalAmount = selectedSales.reduce((sum, s) => sum + Number(s.amount), 0);
+      const grandPaidAmount = selectedSales.reduce((sum, s) => sum + Number(s.paidAmount), 0);
+      const grandDueAmount = selectedSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
+
+      const itemsLines = selectedSales.map((s, idx) =>
+        `${idx + 1}. ${s.category} (Size ${s.size}) x ${s.pieces} Pcs = ₹${Number(s.pieces) * Number(s.rate)}`
+      ).join('\n');
+
+      let msg = `*${storeConfig.storeName}*\n`;
+      msg += `Receipt No: *${receiptNo}*\n`;
+      msg += `Date: ${formatDateReadable(primarySale.date)}\n`;
+      msg += `Customer: *${primarySale.soldTo}*\n`;
+      msg += `------------------------\n`;
+      msg += `${itemsLines}\n`;
+      msg += `------------------------\n`;
+      if (grandDiscount > 0) {
+        msg += `Subtotal: ₹${grandSubtotal}\n`;
+        msg += `Discount: -₹${grandDiscount}\n`;
+      }
+      msg += `*Net Total: ₹${grandTotalAmount}*\n`;
+      msg += `Paid (${primarySale.paymentMode || 'Cash'}): ₹${grandPaidAmount}\n`;
+      if (grandDueAmount > 0) {
+        msg += `*Balance Due: ₹${grandDueAmount}*\n`;
+      }
+      msg += `Thank you!`;
+
+      // Clean customer phone for WhatsApp API
+      let rawPhone = String(primarySale.customerPhone || '').replace(/[^0-9]/g, '');
+      if (rawPhone.length === 10) {
+        rawPhone = '91' + rawPhone;
+      }
+
+      const encodedMsg = encodeURIComponent(msg);
+      const waUrl = rawPhone
+        ? `https://wa.me/${rawPhone}?text=${encodedMsg}`
+        : `https://wa.me/?text=${encodedMsg}`;
+
+      window.open(waUrl, '_blank');
     }
 
     function toggleReceiptSaleSelection(saleId) {
@@ -1931,15 +2893,17 @@ function doPost(e) {
       }
     }
 
-    // ==================== SALE FORM CALCULATIONS ====================
+    // ==================== SINGLE ITEM FORM CALCULATIONS ====================
     function updateFormPreview(category) {
       const sizeEl = document.getElementById('saleSize');
       const pcsEl = document.getElementById('salePieces');
       const discEl = document.getElementById('saleDiscount');
+      const paidEl = document.getElementById('salePaidAmount');
       const subEl = document.getElementById('previewSubAmt');
       const discPrevEl = document.getElementById('previewDiscAmt');
       const previewEl = document.getElementById('previewAmt');
       const previewLabelEl = document.getElementById('previewAmtLabel');
+      const dueEl = document.getElementById('previewDueAmt');
       if (!sizeEl || !pcsEl) return;
 
       const selectedSize = String(sizeEl.value);
@@ -1953,23 +2917,32 @@ function doPost(e) {
       const appliedDiscount = Math.min(subtotal, rawDiscount);
       const finalAmount = Math.max(0, subtotal - appliedDiscount);
 
+      if (paidEl && !window._userEditedPaid) {
+        paidEl.value = finalAmount;
+      }
+
+      const paidVal = Math.min(finalAmount, Math.max(0, Number(paidEl ? paidEl.value : finalAmount) || 0));
+      const dueVal = Math.max(0, finalAmount - paidVal);
+
       if (subEl) subEl.textContent = formatINR(subtotal);
       if (discPrevEl) discPrevEl.textContent = '-' + formatINR(appliedDiscount);
       if (previewEl) previewEl.textContent = formatINR(finalAmount);
       if (previewLabelEl) previewLabelEl.textContent = formatINR(finalAmount);
+      if (dueEl) dueEl.textContent = formatINR(dueVal);
     }
 
     function addSaleEntry(e, category) {
       e.preventDefault();
       const date = document.getElementById('saleDate').value;
       const soldTo = document.getElementById('saleSoldTo').value.trim();
+      const customerPhone = document.getElementById('saleCustomerPhone').value.trim();
       const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
       const size = String(document.getElementById('saleSize').value);
       const pieces = Number(document.getElementById('salePieces').value);
       const rawDiscount = Math.max(0, Number(document.getElementById('saleDiscount').value) || 0);
       const paymentMode = document.getElementById('salePaymentMode').value;
-      const soldBy = document.getElementById('saleSoldBy').value.trim();
       const inHandOf = document.getElementById('saleInHand').value.trim();
+      const soldBy = currentSession ? currentSession.displayName : 'Staff';
 
       const itemObj = (stockConfig[category] || []).find(
         i => String(i.size).trim().toLowerCase() === size.trim().toLowerCase()
@@ -1978,12 +2951,16 @@ function doPost(e) {
       const subtotal = pieces * rate;
       const discount = Math.min(subtotal, rawDiscount);
       const amount = Math.max(0, subtotal - discount);
+      const rawPaid = Math.max(0, Number(document.getElementById('salePaidAmount').value) || 0);
+      const paidAmount = Math.min(amount, rawPaid);
+      const dueAmount = Math.max(0, amount - paidAmount);
       const newId = Date.now().toString();
 
       salesList.push({
         id: newId,
         date,
         soldTo,
+        customerPhone,
         customerMeta,
         category,
         size,
@@ -1991,6 +2968,8 @@ function doPost(e) {
         rate,
         discount,
         amount,
+        paidAmount,
+        dueAmount,
         paymentMode,
         soldBy,
         inHandOf
@@ -2008,6 +2987,10 @@ function doPost(e) {
     }
 
     function deleteSaleEntry(id) {
+      if (!isAdminUser()) {
+        alert('Sirf Admin hi sale entry delete kar sakta hai.');
+        return;
+      }
       if (!confirm('Kya aap is sale entry ko delete karna chahte hain? Stock wapas jud jayega.')) return;
       salesList = salesList.filter(s => s.id !== id);
       selectedReceiptSaleIds = selectedReceiptSaleIds.filter(sid => sid !== id);
@@ -2016,6 +2999,7 @@ function doPost(e) {
     }
 
     function updateOpeningStock(category, size, newVal) {
+      if (!isAdminUser()) return;
       const val = Math.max(0, Number(newVal) || 0);
       const item = (stockConfig[category] || []).find(
         i => String(i.size).trim().toLowerCase() === String(size).trim().toLowerCase()
@@ -2028,6 +3012,7 @@ function doPost(e) {
     }
 
     function updateProductPrice(category, size, newVal) {
+      if (!isAdminUser()) return;
       const val = Math.max(0, Number(newVal) || 0);
       const item = (stockConfig[category] || []).find(
         i => String(i.size).trim().toLowerCase() === String(size).trim().toLowerCase()
@@ -2044,12 +3029,13 @@ function doPost(e) {
         alert('Export karne ke liye koi sales entry nahi hai.');
         return;
       }
-      const headers = ['Date', 'Sold To', 'Customer Details', 'Item', 'Size', 'Total Pieces', 'Rate', 'Subtotal', 'Discount', 'Final Amount', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+      const headers = ['Date', 'Sold To', 'Mobile', 'Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
       const rows = salesList.map(r => {
         const sub = Number(r.pieces) * Number(r.rate);
         return [
           r.date,
           `"${(r.soldTo || '').replace(/"/g, '""')}"`,
+          `"${(r.customerPhone || '').replace(/"/g, '""')}"`,
           `"${(r.customerMeta || '').replace(/"/g, '""')}"`,
           `"${(r.category || '').replace(/"/g, '""')}"`,
           `"${(r.size || '').replace(/"/g, '""')}"`,
@@ -2058,6 +3044,8 @@ function doPost(e) {
           sub,
           r.discount || 0,
           r.amount,
+          r.paidAmount || 0,
+          r.dueAmount || 0,
           `"${(r.paymentMode || 'Cash').replace(/"/g, '""')}"`,
           `"${(r.soldBy || '').replace(/"/g, '""')}"`,
           `"${(r.inHandOf || '').replace(/"/g, '""')}"`
@@ -2094,7 +3082,7 @@ function doPost(e) {
         .replace(/"/g, '&quot;');
     }
 
-    // Start App with Login Check
+    // Start App
     checkAuthState();
   </script>
 </body>
