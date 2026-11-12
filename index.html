@@ -3124,24 +3124,24 @@ function doPost(e) {
               </div>
             </div>
 
-            <!-- 3. Download, Print & WhatsApp PDF Share -->
+            <!-- 3. Share, Download & Print -->
             <div class="bg-blue-950 text-white rounded-xl p-4 space-y-2.5 shadow">
-              <h3 class="text-sm font-bold">3. Share PDF on WhatsApp / Download</h3>
-              <button type="button" id="btnShareWhatsappPdf" onclick="shareReceiptPDFOnWhatsApp('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
-                class="w-full bg-green-600 hover:bg-green-500 text-white font-bold text-sm py-3 px-4 rounded-lg shadow transition flex items-center justify-center gap-2">
-                <span>Share A4 PDF on WhatsApp</span>
+              <h3 class="text-sm font-bold">3. Share, Download &amp; Print Receipt</h3>
+              <button type="button" onclick="sendReceiptTextOnWhatsApp('${receiptNo}')"
+                class="w-full bg-green-600 hover:bg-green-500 text-white font-extrabold text-sm py-3 px-4 rounded-lg shadow transition">
+                Send Text Summary (WhatsApp)
               </button>
-              <button type="button" onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
+              <button type="button" id="btnDownloadPdf" onclick="downloadReceiptPDF('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
                 class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-sm py-2.5 px-4 rounded-lg shadow transition">
                 Download A4 PDF File
               </button>
-              <button type="button" onclick="sendReceiptTextOnWhatsApp('${receiptNo}')"
-                class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-xs py-2 px-4 rounded-lg transition">
-                Send Text Summary Only (WhatsApp)
-              </button>
               <button type="button" onclick="window.print()"
-                class="w-full bg-white/10 hover:bg-white/20 text-white font-semibold text-xs py-2 px-4 rounded-lg transition">
-                Direct Print (A4 Page)
+                class="w-full bg-white/15 hover:bg-white/25 text-white font-semibold text-sm py-2.5 px-4 rounded-lg transition">
+                Print Receipt (A4 Page)
+              </button>
+              <button type="button" id="btnShareWhatsappPdf" onclick="shareReceiptPDFOnWhatsApp('${receiptNo}', '${escapeHTML(primarySale.soldTo)}')"
+                class="w-full bg-white/10 hover:bg-white/20 text-white font-semibold text-xs py-2 px-4 rounded-lg transition flex items-center justify-center gap-2">
+                <span>Share A4 PDF on WhatsApp</span>
               </button>
             </div>
           </div>
@@ -3277,30 +3277,77 @@ function doPost(e) {
       `;
     }
 
-    async function shareReceiptPDFOnWhatsApp(receiptNo, customerName) {
-      const element = document.getElementById('receiptPrintArea');
-      const btn = document.getElementById('btnShareWhatsappPdf');
-      if (!element) return;
+    // Helper to build a clean, unclipped clone of A4 sheet so PDF is NEVER blank on mobile screens
+    async function generateCleanA4PdfWorker(fileName) {
+      const sourceEl = document.getElementById('receiptPrintArea');
+      if (!sourceEl || typeof html2pdf === 'undefined') return null;
 
+      const cloneHost = document.createElement('div');
+      cloneHost.style.position = 'fixed';
+      cloneHost.style.left = '0';
+      cloneHost.style.top = '0';
+      cloneHost.style.width = '210mm';
+      cloneHost.style.background = '#ffffff';
+      cloneHost.style.zIndex = '-9999';
+      cloneHost.style.opacity = '1';
+      cloneHost.style.pointerEvents = 'none';
+
+      const clonedSheet = sourceEl.cloneNode(true);
+      clonedSheet.style.margin = '0';
+      clonedSheet.style.boxShadow = 'none';
+      clonedSheet.style.border = 'none';
+      clonedSheet.style.width = '210mm';
+      clonedSheet.style.minHeight = '296mm';
+
+      cloneHost.appendChild(clonedSheet);
+      document.body.appendChild(cloneHost);
+
+      // Give browser 1 frame to paint images/fonts inside clone
+      await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 120)));
+
+      const opt = {
+        margin: 0,
+        filename: fileName,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: 820,
+          backgroundColor: '#ffffff'
+        },
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+      };
+
+      return {
+        worker: html2pdf().set(opt).from(clonedSheet),
+        cleanup: () => {
+          if (cloneHost && cloneHost.parentNode) {
+            cloneHost.parentNode.removeChild(cloneHost);
+          }
+        }
+      };
+    }
+
+    async function shareReceiptPDFOnWhatsApp(receiptNo, customerName) {
+      const btn = document.getElementById('btnShareWhatsappPdf');
       const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');
       const fileName = `${receiptNo}_${safeCustomer}.pdf`;
 
       if (btn) {
         btn.disabled = true;
-        btn.textContent = 'Generating A4 PDF...';
+        btn.innerHTML = '<span>Generating A4 PDF...</span>';
       }
 
+      let job = null;
       try {
-        const opt = {
-          margin: 0,
-          filename: fileName,
-          image: { type: 'jpeg', quality: 0.98 },
-          html2canvas: { scale: 2, useCORS: true },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
+        job = await generateCleanA4PdfWorker(fileName);
+        if (job) {
+          const pdfBlob = await job.worker.outputPdf('blob');
+          job.cleanup();
+          job = null;
 
-        if (typeof html2pdf !== 'undefined') {
-          const pdfBlob = await html2pdf().set(opt).from(element).outputPdf('blob');
           const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
 
           if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
@@ -3310,7 +3357,12 @@ function doPost(e) {
               text: `Sales Receipt ${receiptNo} - ${storeConfig.storeName}`
             });
           } else {
-            html2pdf().set(opt).from(element).save();
+            const blobUrl = URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = fileName;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
             alert('A4 PDF download ho gaya hai! Ab WhatsApp chat khul rahi hai — wahan attach karke bhej dein.');
             sendReceiptTextOnWhatsApp(receiptNo);
           }
@@ -3318,6 +3370,7 @@ function doPost(e) {
           window.print();
         }
       } catch (err) {
+        if (job) job.cleanup();
         if (err && err.name !== 'AbortError') {
           console.error('PDF Share Error:', err);
           alert('Direct share mein dikkat aayi, PDF download kiya ja raha hai.');
@@ -3326,7 +3379,7 @@ function doPost(e) {
       } finally {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = 'Share A4 PDF on WhatsApp';
+          btn.innerHTML = '<span>Share A4 PDF on WhatsApp</span>';
         }
       }
     }
@@ -3402,23 +3455,35 @@ function doPost(e) {
       }, 1000);
     }
 
-    function downloadReceiptPDF(receiptNo, customerName) {
-      const element = document.getElementById('receiptPrintArea');
-      if (!element) return;
-
+    async function downloadReceiptPDF(receiptNo, customerName) {
+      const btn = document.getElementById('btnDownloadPdf');
       const safeCustomer = (customerName || 'Customer').replace(/[^a-zA-Z0-9_-]/g, '_');
-      const opt = {
-        margin: 0,
-        filename: `${receiptNo}_${safeCustomer}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
-      };
+      const fileName = `${receiptNo}_${safeCustomer}.pdf`;
 
-      if (typeof html2pdf !== 'undefined') {
-        html2pdf().set(opt).from(element).save();
-      } else {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generating PDF...';
+      }
+
+      let job = null;
+      try {
+        job = await generateCleanA4PdfWorker(fileName);
+        if (job) {
+          await job.worker.save();
+          job.cleanup();
+          job = null;
+        } else {
+          window.print();
+        }
+      } catch (err) {
+        if (job) job.cleanup();
+        console.error('PDF Download Error:', err);
         window.print();
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = 'Download A4 PDF File';
+        }
       }
     }
 
