@@ -544,6 +544,11 @@ RozFs3BK8cOxf0Vrn+9CffuYaYBmP/nYkvGyYdP8hD5vx7bi9Ba1G8AozJRh/RyMzeBcBw1o7BBrdjWb
       normalizeAuthUsers();
       let matched = authUsers.find(acc => acc.username.toLowerCase() === u && acc.password === p);
 
+      // Fallback: if no Admin exists or authUsers got corrupted in localStorage, check DEFAULT_AUTH_USERS
+      if (!matched && !authUsers.some(acc => acc.role === 'Admin' && acc.password)) {
+        matched = DEFAULT_AUTH_USERS.find(acc => acc.username.toLowerCase() === u && acc.password === p);
+      }
+
       if (!matched && googleScriptUrl) {
         if (submitBtn) {
           submitBtn.disabled = true;
@@ -4846,8 +4851,17 @@ function doPost(e) {
         .replace(/"/g, '&quot;');
     }
 
-    // Start App
-    checkAuthState();
+    // Start App safely
+    try {
+      checkAuthState();
+    } catch (initErr) {
+      console.error('Init recovery triggered:', initErr);
+      localStorage.removeItem(STORAGE_KEY_SESSION);
+      localStorage.removeItem(STORAGE_KEY_AUTH_USERS);
+      authUsers = JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS));
+      currentSession = null;
+      checkAuthState();
+    }
   </script>
 </body>
 </html>
