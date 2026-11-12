@@ -1294,25 +1294,25 @@
       const pendingPreOrdersCount = preOrdersList.filter(p => p.status !== 'Delivered').length;
 
       const allNavItems = [
-        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800', group: 'Billing' }
+        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800' }
       ];
 
       Object.keys(stockConfig).forEach(cat => {
-        allNavItems.push({ id: cat, label: cat + ' Stock & Billing', group: 'Product Stock' });
+        allNavItems.push({ id: cat, label: cat + ' Stock & Billing' });
       });
 
       allNavItems.push(
-        { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600', group: 'Operations' },
-        { id: 'StockInward', label: '+ Stock Purchase & Supplier Khata', group: 'Operations' },
-        { id: 'PendingDues', label: 'Pending Dues (Udhaar)', count: pendingCount, badgeColor: 'bg-rose-600', group: 'Operations' },
-        { id: 'DailyClosing', label: 'Daily Closing & Expenses', group: 'Reports' },
-        { id: 'AddProduct', label: '+ Add / Manage Products', group: 'Catalog' },
-        { id: 'Summary', label: 'All Sales & Summary', group: 'Reports' },
-        { id: 'Receipt', label: 'A4 Receipt & PDF', group: 'Billing' }
+        { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600' },
+        { id: 'StockInward', label: '+ Stock Purchase & Supplier Khata' },
+        { id: 'PendingDues', label: 'Pending Dues (Udhaar)', count: pendingCount, badgeColor: 'bg-rose-600' },
+        { id: 'DailyClosing', label: 'Daily Closing & Expenses' },
+        { id: 'AddProduct', label: '+ Add / Manage Products' },
+        { id: 'Summary', label: 'All Sales & Summary' },
+        { id: 'Receipt', label: 'A4 Receipt & PDF' }
       );
 
       if (isAdminUser()) {
-        allNavItems.push({ id: 'SyncSetup', label: 'Settings & Class Combos', dot: true, group: 'Admin' });
+        allNavItems.push({ id: 'SyncSetup', label: 'Settings & Class Combos', dot: true });
       }
 
       const activeObj = allNavItems.find(item => item.id === currentTab) || allNavItems[0];
@@ -3255,11 +3255,7 @@
       }
 
       if (skipped.length > 0) {
-        alert(`Combo ke ${addedCount} items cart mein add ho gaye.
-
-Low/Out of Stock hone ki wajah se ye items skip hue:
-- ${skipped.join('
-- ')}`);
+        alert(`Combo ke ${addedCount} items cart mein add ho gaye.\n\nLow/Out of Stock hone ki wajah se ye items skip hue:\n- ${skipped.join('\n- ')}`);
       }
     }
 
