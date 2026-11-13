@@ -1265,6 +1265,82 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       return clean;
     }
 
+    function parseDDMMYYYYToISO(val) {
+      const s = String(val || '').trim();
+      if (!s) return '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+      if (m) {
+        const dd = m[1].padStart(2, '0');
+        const mm = m[2].padStart(2, '0');
+        const yyyy = m[3];
+        if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
+          return `${yyyy}-${mm}-${dd}`;
+        }
+      }
+      return '';
+    }
+
+    function syncDDMMInputFromPicker(hiddenId, textId, pickerVal, onChangeCode = '') {
+      if (!pickerVal) return;
+      const hiddenEl = document.getElementById(hiddenId);
+      const textEl = document.getElementById(textId);
+      if (hiddenEl) hiddenEl.value = pickerVal;
+      if (textEl) textEl.value = formatDateReadable(pickerVal);
+      if (onChangeCode) {
+        try { (new Function('val', onChangeCode))(pickerVal); } catch (e) {}
+      }
+    }
+
+    function syncPickerFromDDMMText(hiddenId, textId, onChangeCode = '') {
+      const hiddenEl = document.getElementById(hiddenId);
+      const textEl = document.getElementById(textId);
+      const pickerEl = document.getElementById(hiddenId + '_picker');
+      if (!textEl) return;
+      const iso = parseDDMMYYYYToISO(textEl.value);
+      if (iso) {
+        if (hiddenEl) hiddenEl.value = iso;
+        if (pickerEl) pickerEl.value = iso;
+        textEl.value = formatDateReadable(iso);
+        if (onChangeCode) {
+          try { (new Function('val', onChangeCode))(iso); } catch (e) {}
+        }
+      } else if (!textEl.value.trim()) {
+        if (hiddenEl) hiddenEl.value = '';
+        if (pickerEl) pickerEl.value = '';
+        if (onChangeCode) {
+          try { (new Function('val', onChangeCode))(''); } catch (e) {}
+        }
+      } else if (hiddenEl && hiddenEl.value) {
+        textEl.value = formatDateReadable(hiddenEl.value);
+      }
+    }
+
+    function renderDDMMDateField(id, isoValue, extraInputCls = '', required = true, onChangeCode = '') {
+      const safeIso = isoValue || '';
+      const displayVal = safeIso ? formatDateReadable(safeIso) : '';
+      const safeOnChange = onChangeCode.replace(/'/g, "\\'");
+      return `
+        <div class="relative flex items-center">
+          <input type="hidden" id="${id}" value="${escapeHTML(safeIso)}" />
+          <input type="text" id="${id}_display" value="${escapeHTML(displayVal)}" placeholder="DD-MM-YYYY" maxlength="10" ${required ? 'required' : ''}
+            onblur="syncPickerFromDDMMText('${id}', '${id}_display', '${safeOnChange}')"
+            onkeydown="if(event.key==='Enter'){syncPickerFromDDMMText('${id}', '${id}_display', '${safeOnChange}');}"
+            class="w-full bg-white border border-slate-300 rounded-lg pl-3 pr-9 py-2 text-sm font-semibold focus:outline-none focus:border-blue-800 ${extraInputCls}" />
+          <button type="button" onclick="const p=document.getElementById('${id}_picker'); if(p){if(p.showPicker){p.showPicker();}else{p.focus();p.click();}}"
+            title="Choose Date"
+            class="absolute right-2 text-slate-500 hover:text-blue-900 p-1 rounded">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </button>
+          <input type="date" id="${id}_picker" value="${escapeHTML(safeIso)}" tabindex="-1"
+            onchange="syncDDMMInputFromPicker('${id}', '${id}_display', this.value, '${safeOnChange}')"
+            class="sr-only" />
+        </div>
+      `;
+    }
+
     function isDateLocked(dateStr) {
       return Array.isArray(lockedClosingDates) && lockedClosingDates.includes(dateStr);
     }
@@ -1955,8 +2031,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <form onsubmit="addSaleEntry(event, '${escapeHTML(category)}')" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
-                <input type="date" id="saleDate" value="${getTodayDate()}" required
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+                ${renderDDMMDateField('saleDate', getTodayDate(), '', true)}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Sold To (Student / Customer) *</label>
@@ -2175,8 +2250,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <form onsubmit="handleAddStockPurchase(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
-                <input type="date" id="inwardDate" value="${getTodayDate()}" required
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-700" />
+                ${renderDDMMDateField('inwardDate', getTodayDate(), 'focus:border-emerald-700', true)}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Product Category *</label>
@@ -2261,8 +2335,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <form onsubmit="handleAddSupplierPayment(event)" class="bg-white border border-blue-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Payment Date *</label>
-                <input type="date" id="spDateInput" value="${getTodayDate()}" required
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm" />
+                ${renderDDMMDateField('spDateInput', getTodayDate(), 'text-xs sm:text-sm', true)}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Supplier / Party Name *</label>
@@ -2472,6 +2545,194 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       stockAdjustmentsList = stockAdjustmentsList.filter(a => a.id !== adjId);
       saveDataAndSync();
       renderContent();
+    }
+
+    async function printOrDownloadDailyClosingA4(actionMode = 'print') {
+      const daySales = salesList.filter(s => s.date === closingFilterDate && !s.isReturned);
+      const dayExpenses = dailyExpensesList.filter(ex => ex.date === closingFilterDate);
+
+      let dayNetSales = 0, dayCollected = 0, dayCashCollected = 0, dayDue = 0, dayPieces = 0;
+      const byMode = {};
+      const byHand = {};
+
+      daySales.forEach(s => {
+        dayNetSales += Number(s.amount || 0);
+        dayCollected += Number(s.paidAmount || 0);
+        dayDue += Number(s.dueAmount || 0);
+        dayPieces += Number(s.pieces || 0);
+        const mode = s.paymentMode || 'Cash';
+        byMode[mode] = (byMode[mode] || 0) + Number(s.paidAmount || 0);
+        if (mode === 'Cash') dayCashCollected += Number(s.paidAmount || 0);
+        const hand = (s.inHandOf || 'Unassigned').trim();
+        byHand[hand] = (byHand[hand] || 0) + Number(s.paidAmount || 0);
+      });
+
+      const totalDayExpense = dayExpenses.reduce((sum, ex) => sum + Number(ex.amount || 0), 0);
+      const netCashInDrawer = dayCashCollected - totalDayExpense;
+      const netBalanceAfterExpense = dayCollected - totalDayExpense;
+      const isLocked = isDateLocked(closingFilterDate);
+
+      const modeRows = Object.keys(byMode).length ? Object.entries(byMode).map(([m, a]) => `
+        <tr>
+          <td style="padding:6px 10px; border:1px solid #cbd5e1; font-weight:600;">${escapeHTML(m)}</td>
+          <td style="padding:6px 10px; border:1px solid #cbd5e1; text-align:right; font-weight:700; color:#047857;">${formatINR(a)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="2" style="padding:8px; border:1px solid #cbd5e1; text-align:center; color:#64748b;">No collection</td></tr>`;
+
+      const handRows = Object.keys(byHand).length ? Object.entries(byHand).map(([p, a]) => `
+        <tr>
+          <td style="padding:6px 10px; border:1px solid #cbd5e1; font-weight:600;">${escapeHTML(p)}</td>
+          <td style="padding:6px 10px; border:1px solid #cbd5e1; text-align:right; font-weight:700; color:#1e3a8a;">${formatINR(a)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="2" style="padding:8px; border:1px solid #cbd5e1; text-align:center; color:#64748b;">No staff handover</td></tr>`;
+
+      const expRows = dayExpenses.length ? dayExpenses.map((ex, i) => `
+        <tr>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:center;">${i + 1}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; font-weight:600;">${escapeHTML(ex.title)}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1;">${escapeHTML(ex.category || 'General')}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1;">${escapeHTML(ex.paidBy || '-')}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:right; color:#be123c; font-weight:700;">-${formatINR(ex.amount)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="5" style="padding:8px; border:1px solid #cbd5e1; text-align:center; color:#64748b;">No expenses recorded</td></tr>`;
+
+      const salesRows = daySales.length ? daySales.map((s, i) => `
+        <tr>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:center;">${i + 1}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; font-weight:600;">${escapeHTML(s.soldTo)} ${s.studentClass ? `(${escapeHTML(s.studentClass)})` : ''}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1;">${escapeHTML(s.category)} (Size ${escapeHTML(s.size)}) x ${s.pieces}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:center;">${escapeHTML(s.paymentMode || 'Cash')}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:right;">${formatINR(s.amount)}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:right; color:#047857; font-weight:700;">${formatINR(s.paidAmount)}</td>
+          <td style="padding:5px 8px; border:1px solid #cbd5e1; text-align:right; color:#be123c;">${formatINR(s.dueAmount)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="7" style="padding:8px; border:1px solid #cbd5e1; text-align:center; color:#64748b;">No sales on this date</td></tr>`;
+
+      const sheetHTML = `
+        <div id="receiptPrintArea" style="width:210mm; min-height:296mm; padding:14mm 16mm; font-family:Inter,sans-serif; color:#0f172a; background:#fff; box-sizing:border-box; display:flex; flex-direction:column; justify-content:space-between;">
+          <div>
+            <div style="border-bottom:2px solid #0f172a; padding-bottom:10px; margin-bottom:14px; display:flex; justify-content:space-between; align-items:flex-start;">
+              <div>
+                <h1 style="margin:0; font-size:20px; font-weight:800; text-transform:uppercase;">${escapeHTML(storeConfig.storeName)}</h1>
+                <p style="margin:2px 0 0; font-size:11px; color:#475569;">${escapeHTML(storeConfig.storeAddress)} &bull; Ph: ${escapeHTML(storeConfig.storePhone)}</p>
+              </div>
+              <div style="text-align:right;">
+                <span style="background:#0f172a; color:#fff; font-size:10px; font-weight:800; padding:4px 10px; border-radius:4px; letter-spacing:1px;">DAILY CLOSING REPORT</span>
+                <p style="margin:6px 0 0; font-size:12px;"><strong>Closing Date:</strong> ${formatDateReadable(closingFilterDate)}</p>
+                <p style="margin:2px 0 0; font-size:10px; color:${isLocked ? '#047857' : '#b45309'}; font-weight:700;">Status: ${isLocked ? 'VERIFIED & LOCKED' : 'OPEN SHIFT'}</p>
+              </div>
+            </div>
+
+            <table style="width:100%; border-collapse:collapse; font-size:11px; margin-bottom:14px; text-align:center;">
+              <tr style="background:#f8fafc;">
+                <td style="padding:8px; border:1px solid #cbd5e1;">Pieces Sold<br><strong style="font-size:14px;">${dayPieces} Pcs</strong></td>
+                <td style="padding:8px; border:1px solid #cbd5e1;">Net Billing<br><strong style="font-size:14px; color:#1e3a8a;">${formatINR(dayNetSales)}</strong></td>
+                <td style="padding:8px; border:1px solid #cbd5e1;">Gross Collected<br><strong style="font-size:14px; color:#047857;">${formatINR(dayCollected)}</strong></td>
+                <td style="padding:8px; border:1px solid #cbd5e1;">Shop Expenses<br><strong style="font-size:14px; color:#be123c;">-${formatINR(totalDayExpense)}</strong></td>
+                <td style="padding:8px; border:1px solid #0f172a; background:#0f172a; color:#fff;">Cash in Drawer<br><strong style="font-size:14px; color:#fbbf24;">${formatINR(netCashInDrawer)}</strong></td>
+                <td style="padding:8px; border:1px solid #cbd5e1;">New Dues<br><strong style="font-size:14px; color:#b45309;">${formatINR(dayDue)}</strong></td>
+              </tr>
+            </table>
+
+            <div style="display:flex; gap:14px; margin-bottom:14px;">
+              <div style="flex:1;">
+                <h4 style="margin:0 0 5px; font-size:11px; text-transform:uppercase; color:#334155;">1. Collection by Payment Mode</h4>
+                <table style="width:100%; border-collapse:collapse; font-size:11px;">
+                  ${modeRows}
+                  <tr style="background:#f1f5f9; font-weight:800;">
+                    <td style="padding:6px 10px; border:1px solid #cbd5e1;">Total Gross Collected</td>
+                    <td style="padding:6px 10px; border:1px solid #cbd5e1; text-align:right; color:#047857;">${formatINR(dayCollected)}</td>
+                  </tr>
+                </table>
+              </div>
+              <div style="flex:1;">
+                <h4 style="margin:0 0 5px; font-size:11px; text-transform:uppercase; color:#334155;">2. Staff Handover Summary (In Hand Of)</h4>
+                <table style="width:100%; border-collapse:collapse; font-size:11px;">
+                  ${handRows}
+                  <tr style="background:#f1f5f9; font-weight:800;">
+                    <td style="padding:6px 10px; border:1px solid #cbd5e1;">Net After Expenses</td>
+                    <td style="padding:6px 10px; border:1px solid #cbd5e1; text-align:right; color:#1e3a8a;">${formatINR(netBalanceAfterExpense)}</td>
+                  </tr>
+                </table>
+              </div>
+            </div>
+
+            <h4 style="margin:10px 0 5px; font-size:11px; text-transform:uppercase; color:#334155;">3. Shop Expenses Log (${dayExpenses.length})</h4>
+            <table style="width:100%; border-collapse:collapse; font-size:10px; margin-bottom:14px;">
+              <thead>
+                <tr style="background:#881337; color:#fff;">
+                  <th style="padding:5px 8px; border:1px solid #881337; width:30px;">#</th>
+                  <th style="padding:5px 8px; border:1px solid #881337; text-align:left;">Description</th>
+                  <th style="padding:5px 8px; border:1px solid #881337; text-align:left;">Category</th>
+                  <th style="padding:5px 8px; border:1px solid #881337; text-align:left;">Paid By</th>
+                  <th style="padding:5px 8px; border:1px solid #881337; text-align:right;">Amount</th>
+                </tr>
+              </thead>
+              <tbody>${expRows}</tbody>
+            </table>
+
+            <h4 style="margin:10px 0 5px; font-size:11px; text-transform:uppercase; color:#334155;">4. Sales Register on ${formatDateReadable(closingFilterDate)} (${daySales.length} Bills)</h4>
+            <table style="width:100%; border-collapse:collapse; font-size:10px;">
+              <thead>
+                <tr style="background:#1e293b; color:#fff;">
+                  <th style="padding:5px 8px; border:1px solid #1e293b; width:28px;">#</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b; text-align:left;">Student / Customer</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b; text-align:left;">Item &amp; Qty</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b;">Mode</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b; text-align:right;">Net Bill</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b; text-align:right;">Paid</th>
+                  <th style="padding:5px 8px; border:1px solid #1e293b; text-align:right;">Due</th>
+                </tr>
+              </thead>
+              <tbody>${salesRows}</tbody>
+            </table>
+          </div>
+
+          <div style="padding-top:24px;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:11px;">
+              <div>
+                <div style="border-bottom:1px solid #64748b; width:160px; height:32px;"></div>
+                <p style="margin:4px 0 0; font-weight:600;">Counter Staff Signature</p>
+              </div>
+              <div style="text-align:right;">
+                <div style="border-bottom:1px solid #64748b; width:160px; height:32px;"></div>
+                <p style="margin:4px 0 0; font-weight:600;">Admin / Manager Verification</p>
+              </div>
+            </div>
+            <div style="border-top:1px solid #cbd5e1; padding-top:6px; text-align:center; font-size:10px; color:#64748b;">
+              Printed on ${formatDateReadable(getTodayDate())} &bull; FAIMS ENTERPRISES Unified Software
+            </div>
+          </div>
+        </div>
+      `;
+
+      const host = document.createElement('div');
+      host.style.position = 'fixed';
+      host.style.left = '0';
+      host.style.top = '0';
+      host.style.width = '210mm';
+      host.style.background = '#ffffff';
+      host.style.zIndex = '-9999';
+      host.innerHTML = sheetHTML;
+      document.body.appendChild(host);
+
+      await new Promise(r => requestAnimationFrame(() => setTimeout(r, 120)));
+
+      try {
+        if (actionMode === 'pdf' && typeof html2pdf !== 'undefined') {
+          await html2pdf().set({
+            margin: 0,
+            filename: `Daily_Closing_${formatDateReadable(closingFilterDate)}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, scrollX: 0, scrollY: 0, windowWidth: 820, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+          }).from(host.firstElementChild).save();
+        } else {
+          window.print();
+        }
+      } finally {
+        if (host.parentNode) host.parentNode.removeChild(host);
+      }
     }
 
     function updateInwardSizeOptions() {
@@ -2961,8 +3222,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
-                <input type="date" id="posDate" value="${getTodayDate()}" required
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+                ${renderDDMMDateField('posDate', getTodayDate(), '', true)}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Student / Customer Name *</label>
@@ -3420,8 +3680,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <form onsubmit="handleAddPreOrder(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Booking Date *</label>
-                <input type="date" id="poDate" value="${getTodayDate()}" required
-                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+                ${renderDDMMDateField('poDate', getTodayDate(), '', true)}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Student Name *</label>
@@ -4734,8 +4993,15 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             </div>
             <div class="flex flex-wrap items-center gap-2">
               <label class="text-xs font-bold text-slate-700">Date:</label>
-              <input type="date" value="${closingFilterDate}" onchange="closingFilterDate = this.value; renderContent();"
-                class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:border-blue-800" />
+              ${renderDDMMDateField('closingDateField', closingFilterDate, 'w-36', true, 'closingFilterDate = val; renderContent();')}
+              <button type="button" onclick="printOrDownloadDailyClosingA4('print')"
+                class="bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition">
+                Print Closing (A4)
+              </button>
+              <button type="button" onclick="printOrDownloadDailyClosingA4('pdf')"
+                class="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition">
+                Download Closing PDF
+              </button>
               ${isAdminUser() ? `
                 <button type="button" onclick="toggleDayClosingLock('${closingFilterDate}')"
                   class="${isLocked ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-700 hover:bg-emerald-800'} text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition">
@@ -5155,15 +5421,11 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           </div>
           <div>
             <label class="block text-[11px] font-bold text-slate-600 mb-1">From Date</label>
-            <input type="date" value="${salesFilterFrom}"
-              onchange="salesFilterFrom = this.value; renderContent();"
-              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+            ${renderDDMMDateField('salesFilterFromInput', salesFilterFrom, 'text-xs py-1.5', false, 'salesFilterFrom = val; renderContent();')}
           </div>
           <div>
             <label class="block text-[11px] font-bold text-slate-600 mb-1">To Date</label>
-            <input type="date" value="${salesFilterTo}"
-              onchange="salesFilterTo = this.value; renderContent();"
-              class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
+            ${renderDDMMDateField('salesFilterToInput', salesFilterTo, 'text-xs py-1.5', false, 'salesFilterTo = val; renderContent();')}
           </div>
           ${(salesFilterSearch || salesFilterClass || salesFilterFrom || salesFilterTo) ? `
             <button type="button" onclick="salesFilterSearch=''; salesFilterClass=''; salesFilterFrom=''; salesFilterTo=''; renderContent();"
