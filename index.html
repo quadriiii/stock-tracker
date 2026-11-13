@@ -378,6 +378,26 @@
     let authUsers = safeParseJSON(STORAGE_KEY_AUTH_USERS, JSON.parse(JSON.stringify(DEFAULT_AUTH_USERS)));
     let currentSession = safeParseJSON(STORAGE_KEY_SESSION, null);
 
+    const DEFAULT_RECEIPT_WA_TEMPLATE = `*{storeName}*
+Receipt No: *{receiptNo}*
+Date: {date}
+Student/Customer: *{studentName}*{classText}
+------------------------
+{itemsList}
+------------------------
+{discountLine}*Net Total: ₹{netTotal}*
+Paid ({paymentMode}): ₹{paidAmount}
+{dueLine}Thank you!`;
+
+    const DEFAULT_DUE_WA_TEMPLATE = `*{storeName} - Payment Reminder*
+Dear Parent/Customer,
+Student: *{studentName}*{classText}
+Items: {itemsSummary}
+Date: {date}
+Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
+*Pending Balance Due: ₹{dueAmount}*
+{upiLine}Kripya jald se jald baaki rashi jama karein. Dhanyawad!`;
+
     let storeConfig = safeParseJSON(STORAGE_KEY_STORE, {
       storeName: 'GARMENT STORE & UNIFORM HOUSE',
       storeSubtitle: 'Authorized Winter Wear & Garment Counter',
@@ -386,8 +406,20 @@
       upiId: '',
       logoDataUrl: '',
       qrDataUrl: '',
-      footerNote: 'Thank you for your purchase! Goods once sold can be exchanged within 7 days with original receipt.'
+      footerNote: 'Thank you for your purchase! Goods once sold can be exchanged within 7 days with original receipt.',
+      receiptWaTemplate: DEFAULT_RECEIPT_WA_TEMPLATE,
+      dueWaTemplate: DEFAULT_DUE_WA_TEMPLATE
     });
+
+    function ensureStoreTemplates() {
+      if (!storeConfig.receiptWaTemplate || !String(storeConfig.receiptWaTemplate).trim()) {
+        storeConfig.receiptWaTemplate = DEFAULT_RECEIPT_WA_TEMPLATE;
+      }
+      if (!storeConfig.dueWaTemplate || !String(storeConfig.dueWaTemplate).trim()) {
+        storeConfig.dueWaTemplate = DEFAULT_DUE_WA_TEMPLATE;
+      }
+    }
+    ensureStoreTemplates();
 
     function normalizeAuthUsers() {
       if (!Array.isArray(authUsers)) {
@@ -530,7 +562,7 @@
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'StockMatrix', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -1061,6 +1093,7 @@
             }
             if (JSON.stringify(mergedStore) !== JSON.stringify(storeConfig)) {
               storeConfig = mergedStore;
+              ensureStoreTemplates();
               changed = true;
             }
           }
@@ -1301,6 +1334,8 @@
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"/></svg>`;
         case 'AddProduct':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+        case 'StockMatrix':
+          return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>`;
         case 'Summary':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`;
         case 'Receipt':
@@ -1329,6 +1364,7 @@
       });
 
       allNavItems.push(
+        { id: 'StockMatrix', label: 'All Stock Matrix (Size-Wise)', iconBg: 'bg-cyan-100 text-cyan-800' },
         { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600', iconBg: 'bg-amber-100 text-amber-800' },
         { id: 'StockInward', label: '+ Stock Purchase & Supplier Khata', iconBg: 'bg-emerald-100 text-emerald-800' },
         { id: 'PendingDues', label: 'Pending Dues (Udhaar)', count: pendingCount, badgeColor: 'bg-rose-600', iconBg: 'bg-rose-100 text-rose-700' },
@@ -1456,6 +1492,11 @@
 
       if (currentTab === 'QuickPOS') {
         renderQuickPOSTab(container);
+        return;
+      }
+
+      if (currentTab === 'StockMatrix') {
+        renderStockMatrixTab(container);
         return;
       }
 
@@ -2198,6 +2239,111 @@
       renderContent();
     }
 
+    // ==================== ALL STOCK MATRIX TAB (SIZE-WISE LIVE OVERVIEW) ====================
+    function renderStockMatrixTab(container) {
+      const categories = Object.keys(stockConfig);
+      if (!categories.length) {
+        container.innerHTML = `<p class="text-sm text-slate-500 text-center py-8">Koi product available nahi hai.</p>`;
+        return;
+      }
+
+      const cardsHTML = categories.map(cat => {
+        const m = calculateCategoryMetrics(cat);
+        const sizePills = m.rows.map(r => {
+          const isOut = r.available <= 0;
+          const isLow = r.opening > 0 && r.available <= LOW_STOCK_THRESHOLD && !isOut;
+          let boxStyle = 'bg-emerald-50 border-emerald-200 text-emerald-950';
+          let badgeText = `${r.available} Pcs`;
+          if (isOut) {
+            boxStyle = 'bg-slate-100 border-slate-300 text-slate-500';
+            badgeText = '0 (Out)';
+          } else if (isLow) {
+            boxStyle = 'bg-rose-50 border-rose-300 text-rose-900';
+            badgeText = `${r.available} LOW`;
+          }
+          return `
+            <div class="border rounded-xl p-2.5 text-center ${boxStyle}">
+              <div class="text-[11px] font-bold uppercase opacity-75">Size ${escapeHTML(r.size)}</div>
+              <div class="text-sm sm:text-base font-extrabold mt-0.5">${badgeText}</div>
+              <div class="text-[10px] font-semibold opacity-80 mt-0.5">${formatINR(r.price)}</div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+              <div>
+                <h3 class="text-base sm:text-lg font-extrabold text-slate-900">${escapeHTML(cat)}</h3>
+                <p class="text-xs text-slate-500">Total Inward: <strong>${m.totalOpening}</strong> &bull; Sold: <strong class="text-amber-700">${m.totalSold}</strong> &bull; Available: <strong class="text-emerald-700">${m.totalAvailable} Pcs</strong></p>
+              </div>
+              <button type="button" onclick="switchTab('${escapeHTML(cat)}')"
+                class="text-xs bg-blue-900 hover:bg-blue-800 text-white font-bold px-3 py-1.5 rounded-lg">
+                Open ${escapeHTML(cat)} &rarr;
+              </button>
+            </div>
+            <div class="grid grid-cols-3 sm:grid-cols-6 lg:grid-cols-8 gap-2.5">
+              ${sizePills}
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-cyan-50/70 border border-cyan-200 rounded-xl p-4">
+            <div>
+              <h2 class="text-lg font-bold text-slate-900">All Products Size-Wise Stock Matrix</h2>
+              <p class="text-xs text-slate-600">Ek hi screen par sabhi garments aur unke har size ka live stock aur price dekhein.</p>
+            </div>
+            <div class="flex gap-2 text-[11px] font-bold">
+              <span class="bg-emerald-100 text-emerald-900 px-2.5 py-1 rounded-full">In Stock</span>
+              <span class="bg-rose-100 text-rose-900 px-2.5 py-1 rounded-full">Low (&le;${LOW_STOCK_THRESHOLD})</span>
+              <span class="bg-slate-200 text-slate-700 px-2.5 py-1 rounded-full">Out of Stock</span>
+            </div>
+          </div>
+          <div class="space-y-4">
+            ${cardsHTML}
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== STUDENT AUTO-COMPLETE HELPER ====================
+    function getUniqueStudentDirectory() {
+      const map = new Map();
+      salesList.forEach(s => {
+        const name = String(s.soldTo || '').trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        map.set(key, {
+          name,
+          studentClass: s.studentClass || '',
+          customerMeta: s.customerMeta || '',
+          customerPhone: s.customerPhone || ''
+        });
+      });
+      return Array.from(map.values());
+    }
+
+    function autoFillStudentDetails(prefix) {
+      const nameInput = document.getElementById(prefix + 'SoldTo');
+      if (!nameInput) return;
+      const typed = nameInput.value.trim().toLowerCase();
+      if (!typed) return;
+
+      const match = getUniqueStudentDirectory().find(st => st.name.toLowerCase() === typed);
+      if (!match) return;
+
+      const clsEl = document.getElementById(prefix + 'StudentClass');
+      const metaEl = document.getElementById(prefix + 'CustomerMeta');
+      const phoneEl = document.getElementById(prefix + 'CustomerPhone');
+
+      if (clsEl && !clsEl.value && match.studentClass) clsEl.value = match.studentClass;
+      if (metaEl && !metaEl.value && match.customerMeta) metaEl.value = match.customerMeta;
+      if (phoneEl && !phoneEl.value && match.customerPhone) phoneEl.value = match.customerPhone;
+    }
+
     // ==================== QUICK POS / MULTI-ITEM CART TAB ====================
     function renderQuickPOSTab(container) {
       const categories = Object.keys(stockConfig);
@@ -2335,8 +2481,11 @@
               </div>
               <div>
                 <label class="block text-xs font-semibold text-slate-700 mb-1">Student / Customer Name *</label>
-                <input type="text" id="posSoldTo" placeholder="Enter Name" required
+                <input type="text" id="posSoldTo" list="posStudentDatalist" oninput="autoFillStudentDetails('pos')" onchange="autoFillStudentDetails('pos')" placeholder="Enter or Select Name" required
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
+                <datalist id="posStudentDatalist">
+                  ${getUniqueStudentDirectory().map(st => `<option value="${escapeHTML(st.name)}">${st.studentClass ? escapeHTML(st.studentClass) : ''}${st.customerPhone ? ' - ' + escapeHTML(st.customerPhone) : ''}</option>`).join('')}
+                </datalist>
               </div>
               <div>
                 <label class="block text-xs font-semibold text-blue-900 mb-1">Class *</label>
@@ -3485,9 +3634,9 @@
       }
     }
 
-    // ==================== PENDING DUES (UDHAAR) TAB ====================
+    // ==================== PENDING DUES (UDHAAR) TAB (GROUPED BY BILL) ====================
     function renderPendingDuesTab(container) {
-      const dueSales = salesList.filter(s => Number(s.dueAmount) > 0);
+      const dueSales = salesList.filter(s => !s.isReturned && Number(s.dueAmount) > 0);
       const totalDueSum = dueSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
 
       if (!dueSales.length) {
@@ -3500,42 +3649,72 @@
         return;
       }
 
-      const rowsHTML = dueSales.slice().reverse().map(r => `
+      // Group due entries by invoiceGroupId (or single id) so multi-item bills show together!
+      const groupedMap = new Map();
+      dueSales.forEach(s => {
+        const gKey = s.invoiceGroupId || s.id;
+        if (!groupedMap.has(gKey)) {
+          groupedMap.set(gKey, {
+            groupKey: gKey,
+            primaryId: s.id,
+            date: s.date,
+            soldTo: s.soldTo,
+            studentClass: s.studentClass || '',
+            customerPhone: s.customerPhone || '',
+            customerMeta: s.customerMeta || '',
+            items: [],
+            totalNet: 0,
+            totalPaid: 0,
+            totalDue: 0
+          });
+        }
+        const grp = groupedMap.get(gKey);
+        grp.items.push(s);
+        grp.totalNet += Number(s.amount || 0);
+        grp.totalPaid += Number(s.paidAmount || 0);
+        grp.totalDue += Number(s.dueAmount || 0);
+      });
+
+      const groupedList = Array.from(groupedMap.values());
+
+      const rowsHTML = groupedList.slice().reverse().map(g => {
+        const itemsDesc = g.items.map(it => `${escapeHTML(it.category)} (Size ${escapeHTML(it.size)}) &times; ${it.pieces}`).join('<br>');
+        return `
         <tr class="hover:bg-rose-50/40">
-          <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${g.date}</td>
           <td class="px-3 py-2.5 font-bold text-slate-900">
-            ${escapeHTML(r.soldTo)}
-            ${r.studentClass ? `<span class="ml-1.5 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(r.studentClass)}</span>` : ''}
-            ${r.customerPhone ? `<div class="text-xs font-normal text-blue-800">Ph: ${escapeHTML(r.customerPhone)}</div>` : ''}
-            ${r.customerMeta ? `<div class="text-xs font-normal text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
+            ${escapeHTML(g.soldTo)}
+            ${g.studentClass ? `<span class="ml-1.5 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(g.studentClass)}</span>` : ''}
+            ${g.customerPhone ? `<div class="text-xs font-normal text-blue-800">Ph: ${escapeHTML(g.customerPhone)}</div>` : ''}
+            ${g.customerMeta ? `<div class="text-xs font-normal text-slate-500">${escapeHTML(g.customerMeta)}</div>` : ''}
           </td>
-          <td class="px-3 py-2.5 text-center font-semibold">${escapeHTML(r.category)} (Size ${escapeHTML(r.size)}) &times; ${r.pieces}</td>
-          <td class="px-3 py-2.5 text-right font-semibold">${formatINR(r.amount)}</td>
-          <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">${formatINR(r.paidAmount)}</td>
-          <td class="px-3 py-2.5 text-right font-extrabold text-rose-600">${formatINR(r.dueAmount)}</td>
+          <td class="px-3 py-2.5 text-left text-xs font-semibold leading-relaxed">${itemsDesc}</td>
+          <td class="px-3 py-2.5 text-right font-semibold">${formatINR(g.totalNet)}</td>
+          <td class="px-3 py-2.5 text-right text-emerald-700 font-semibold">${formatINR(g.totalPaid)}</td>
+          <td class="px-3 py-2.5 text-right font-extrabold text-rose-600">${formatINR(g.totalDue)}</td>
           <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1">
-            <button onclick="openCollectDueModal('${r.id}')"
+            <button onclick="openCollectDueModal('${g.primaryId}')"
               class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1.5 rounded-lg font-bold shadow-xs">
               Collect Due
             </button>
-            <button onclick="sendDueReminderOnWhatsApp('${r.id}')"
+            <button onclick="sendDueReminderOnWhatsApp('${g.primaryId}')"
               class="text-xs bg-green-600 hover:bg-green-500 text-white px-2.5 py-1.5 rounded-lg font-bold shadow-xs">
               Remind WA
             </button>
-            <button onclick="openReceiptForSale('${r.id}')"
+            <button onclick="openReceiptForSale('${g.primaryId}')"
               class="text-xs bg-blue-50 text-blue-800 hover:bg-blue-100 border border-blue-200 px-2 py-1.5 rounded-lg font-semibold">
               Receipt
             </button>
           </td>
         </tr>
-      `).join('');
+      `}).join('');
 
       container.innerHTML = `
         <div class="space-y-4">
           <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl p-4">
             <div>
-              <h2 class="text-lg font-bold text-rose-950">Pending Dues / Balance Recovery List (${dueSales.length} Bills)</h2>
-              <p class="text-xs text-rose-800">Customer se baaki paisa milne par <strong>Collect Due</strong> button dabayein.</p>
+              <h2 class="text-lg font-bold text-rose-950">Pending Dues / Balance Recovery List (${groupedList.length} Bills)</h2>
+              <p class="text-xs text-rose-800">Multi-item bills ek saath grouped hain — ek hi click mein poore bill ka due jama karein ya WhatsApp reminder bhejein.</p>
             </div>
             <div class="text-right">
               <span class="text-xs text-rose-700 uppercase font-bold">Total Market Due</span>
@@ -3549,7 +3728,7 @@
                 <tr>
                   <th class="px-3 py-3 text-center font-semibold">Date</th>
                   <th class="px-3 py-3 text-left font-semibold">Student / Customer</th>
-                  <th class="px-3 py-3 text-center font-semibold">Item &amp; Qty</th>
+                  <th class="px-3 py-3 text-left font-semibold">Items &amp; Qty</th>
                   <th class="px-3 py-3 text-right font-semibold">Net Bill</th>
                   <th class="px-3 py-3 text-right font-semibold">Paid</th>
                   <th class="px-3 py-3 text-right font-semibold">Balance Due</th>
@@ -3563,24 +3742,43 @@
       `;
     }
 
+    function getDueGroupSales(saleId) {
+      const target = salesList.find(s => s.id === saleId);
+      if (!target) return [];
+      if (target.invoiceGroupId) {
+        return salesList.filter(s => s.invoiceGroupId === target.invoiceGroupId && !s.isReturned && Number(s.dueAmount) > 0);
+      }
+      return [target];
+    }
 
     function sendDueReminderOnWhatsApp(saleId) {
-      const sale = salesList.find(s => s.id === saleId);
-      if (!sale) return;
+      const groupItems = getDueGroupSales(saleId);
+      if (!groupItems.length) return;
+      ensureStoreTemplates();
 
-      let msg = `*${storeConfig.storeName} - Payment Reminder*\n`;
-      msg += `Dear Parent/Customer,\n`;
-      msg += `Student: *${sale.soldTo}*${sale.studentClass ? ` (${sale.studentClass})` : ''}\n`;
-      msg += `Item: ${sale.category} (Size ${sale.size}) x ${sale.pieces} Pcs\n`;
-      msg += `Date: ${formatDateReadable(sale.date)}\n`;
-      msg += `Total Bill: ₹${sale.amount} | Paid: ₹${sale.paidAmount}\n`;
-      msg += `*Pending Balance Due: ₹${sale.dueAmount}*\n`;
-      if (storeConfig.upiId) {
-        msg += `UPI ID for Payment: *${storeConfig.upiId}*\n`;
-      }
-      msg += `Kripya jald se jald baaki rashi jama karein. Dhanyawad!`;
+      const primary = groupItems[0];
+      const netTotal = groupItems.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const paidAmount = groupItems.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+      const dueAmount = groupItems.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0);
+      const itemsSummary = groupItems.map(s => `${s.category} (Size ${s.size}) x ${s.pieces} Pcs`).join(', ');
+      const classText = primary.studentClass ? ` (${primary.studentClass})` : '';
+      const upiLine = storeConfig.upiId ? `UPI ID for Payment: *${storeConfig.upiId}*
+` : '';
 
-      let rawPhone = String(sale.customerPhone || '').replace(/[^0-9]/g, '');
+      let msg = String(storeConfig.dueWaTemplate || DEFAULT_DUE_WA_TEMPLATE)
+        .replace(/\{storeName\}/g, storeConfig.storeName || '')
+        .replace(/\{studentName\}/g, primary.soldTo || '')
+        .replace(/\{classText\}/g, classText)
+        .replace(/\{studentClass\}/g, primary.studentClass || '')
+        .replace(/\{itemsSummary\}/g, itemsSummary)
+        .replace(/\{date\}/g, formatDateReadable(primary.date))
+        .replace(/\{netTotal\}/g, String(netTotal))
+        .replace(/\{paidAmount\}/g, String(paidAmount))
+        .replace(/\{dueAmount\}/g, String(dueAmount))
+        .replace(/\{upiLine\}/g, upiLine)
+        .replace(/\{upiId\}/g, storeConfig.upiId || '');
+
+      let rawPhone = String(primary.customerPhone || '').replace(/[^0-9]/g, '');
       if (rawPhone.length === 10) rawPhone = '91' + rawPhone;
 
       const waUrl = rawPhone
@@ -3590,22 +3788,28 @@
     }
 
     function openCollectDueModal(saleId) {
-      const sale = salesList.find(s => s.id === saleId);
-      if (!sale) return;
+      const groupItems = getDueGroupSales(saleId);
+      if (!groupItems.length) return;
+
+      const primary = groupItems[0];
+      const totalNet = groupItems.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const totalPaid = groupItems.reduce((sum, s) => sum + Number(s.paidAmount || 0), 0);
+      const totalDue = groupItems.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0);
+      const itemsDesc = groupItems.map(s => `${escapeHTML(s.category)} (Size ${escapeHTML(s.size)}) &times; ${s.pieces}`).join(', ');
 
       const body = document.getElementById('collectDueModalBody');
       body.innerHTML = `
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-3 text-xs space-y-1">
-          <p>Student / Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong> ${sale.studentClass ? `(${escapeHTML(sale.studentClass)})` : ''}</p>
-          <p>Item: <strong>${escapeHTML(sale.category)} (Size ${escapeHTML(sale.size)}) &times; ${sale.pieces}</strong></p>
-          <p>Total Bill: <strong>${formatINR(sale.amount)}</strong> | Already Paid: <strong class="text-emerald-700">${formatINR(sale.paidAmount)}</strong></p>
-          <p class="text-sm text-rose-600 font-bold pt-1">Remaining Due: ${formatINR(sale.dueAmount)}</p>
+          <p>Student / Customer: <strong class="text-slate-900">${escapeHTML(primary.soldTo)}</strong> ${primary.studentClass ? `(${escapeHTML(primary.studentClass)})` : ''}</p>
+          <p>Items: <strong>${itemsDesc}</strong></p>
+          <p>Total Bill: <strong>${formatINR(totalNet)}</strong> | Already Paid: <strong class="text-emerald-700">${formatINR(totalPaid)}</strong></p>
+          <p class="text-sm text-rose-600 font-bold pt-1">Total Remaining Due: ${formatINR(totalDue)}</p>
         </div>
 
-        <form onsubmit="submitDueCollection(event, '${sale.id}')" class="space-y-3">
+        <form onsubmit="submitDueCollection(event, '${primary.id}')" class="space-y-3">
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Amount Received Now (₹) *</label>
-            <input type="number" id="dueReceiveInput" min="1" max="${sale.dueAmount}" value="${sale.dueAmount}" required
+            <input type="number" id="dueReceiveInput" min="1" max="${totalDue}" value="${totalDue}" required
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-emerald-700" />
           </div>
           <div>
@@ -3635,27 +3839,36 @@
 
     function submitDueCollection(e, saleId) {
       e.preventDefault();
-      const sale = salesList.find(s => s.id === saleId);
-      if (!sale) return;
+      const groupItems = getDueGroupSales(saleId);
+      if (!groupItems.length) return;
 
-      const received = Math.min(Number(sale.dueAmount), Math.max(0, Number(document.getElementById('dueReceiveInput').value) || 0));
+      const totalDue = groupItems.reduce((sum, s) => sum + Number(s.dueAmount || 0), 0);
+      let remainingReceived = Math.min(totalDue, Math.max(0, Number(document.getElementById('dueReceiveInput').value) || 0));
+      const actualCollected = remainingReceived;
       const mode = document.getElementById('duePaymentMode').value;
       const hand = document.getElementById('dueInHandInput').value.trim();
 
-      sale.paidAmount = Number(sale.paidAmount) + received;
-      sale.dueAmount = Math.max(0, Number(sale.amount) - sale.paidAmount);
-      if (sale.dueAmount === 0) {
-        sale.paymentMode = mode;
-      }
-      if (hand) {
-        sale.inHandOf = hand;
-      }
+      groupItems.forEach(item => {
+        if (remainingReceived <= 0) return;
+        const itemDue = Number(item.dueAmount || 0);
+        const applyAmt = Math.min(itemDue, remainingReceived);
+        item.paidAmount = Number(item.paidAmount || 0) + applyAmt;
+        item.dueAmount = Math.max(0, Number(item.amount || 0) - item.paidAmount);
+        remainingReceived -= applyAmt;
+        if (item.dueAmount === 0) {
+          item.paymentMode = mode;
+        }
+        if (hand) {
+          item.inHandOf = hand;
+        }
+      });
 
-      logStaffActivity('Due Collected', `Collected ₹${received} from ${sale.soldTo} (${sale.category} Size ${sale.size})`);
+      const primary = groupItems[0];
+      logStaffActivity('Due Collected', `Collected ₹${actualCollected} from ${primary.soldTo} (${groupItems.length} item(s))`);
       saveDataAndSync();
       closeCollectDueModal();
       renderContent();
-      alert(`${formatINR(received)} jama kar liya gaya hai!`);
+      alert(`${formatINR(actualCollected)} jama kar liya gaya hai!`);
     }
 
     // ==================== SIZE EXCHANGE MODAL ====================
@@ -4366,7 +4579,16 @@
     return ContentService.createTextOutput(JSON.stringify({ status: 'empty' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
-  var raw = dbSheet.getRange('A1').getValue();
+  var lastRow = dbSheet.getLastRow();
+  if (lastRow < 1) {
+    return ContentService.createTextOutput(JSON.stringify({ status: 'empty' }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+  var values = dbSheet.getRange(1, 1, lastRow, 1).getValues();
+  var raw = '';
+  for (var i = 0; i < values.length; i++) {
+    raw += String(values[i][0] || '');
+  }
   if (!raw) {
     return ContentService.createTextOutput(JSON.stringify({ status: 'empty' }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -4380,29 +4602,70 @@ function doPost(e) {
   var payload = JSON.parse(e.postData.contents);
   payload.status = 'ok';
 
-  // 1. Save full JSON state (Products, Stock, Inward, Sales, Users) for multi-device sync
+  // 1. Save full JSON state across chunked rows (45,000 chars per cell) to prevent 50k limit overflow
   var dbSheet = ss.getSheetByName('DB_JSON');
   if (!dbSheet) {
     dbSheet = ss.insertSheet('DB_JSON');
   }
-  dbSheet.getRange('A1').setValue(JSON.stringify(payload));
+  var fullJson = JSON.stringify(payload);
+  var chunkSize = 45000;
+  var chunks = [];
+  for (var i = 0; i < fullJson.length; i += chunkSize) {
+    chunks.push([fullJson.substring(i, i + chunkSize)]);
+  }
+  dbSheet.clearContents();
+  if (chunks.length > 0) {
+    dbSheet.getRange(1, 1, chunks.length, 1).setValues(chunks);
+  }
 
-  // 2. Write readable Sales Ledger in 'Sales_Register' sheet
+  // 2. Readable Sales Ledger in 'Sales_Register'
   var salesSheet = ss.getSheetByName('Sales_Register');
   if (!salesSheet) {
     salesSheet = ss.insertSheet('Sales_Register');
   }
   salesSheet.clear();
-  var headers = ['Date', 'Sold To', 'Class', 'Mobile', 'Roll/Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of'];
+  var headers = ['Date', 'Sold To', 'Class', 'Mobile', 'Roll/Details', 'Item', 'Size', 'Pieces', 'Rate', 'Subtotal', 'Discount', 'Net Bill', 'Paid Amount', 'Balance Due', 'Payment Mode', 'Sold By', 'Amount In Hand Of', 'Status'];
   salesSheet.appendRow(headers);
   salesSheet.getRange(1, 1, 1, headers.length).setFontWeight('bold').setBackground('#1e293b').setFontColor('#ffffff');
 
   if (payload.salesList && payload.salesList.length > 0) {
     var rows = payload.salesList.map(function(r) {
       var sub = Number(r.pieces) * Number(r.rate);
-      return [r.date, r.soldTo, r.studentClass || '', r.customerPhone || '', r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paidAmount || 0, r.dueAmount || 0, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || ''];
+      return [r.date, r.soldTo, r.studentClass || '', r.customerPhone || '', r.customerMeta || '', r.category, r.size, r.pieces, r.rate, sub, r.discount || 0, r.amount, r.paidAmount || 0, r.dueAmount || 0, r.paymentMode || 'Cash', r.soldBy || '', r.inHandOf || '', r.isReturned ? 'RETURNED' : 'ACTIVE'];
     });
     salesSheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  // 3. Readable Daily Expenses in 'Expenses_Log'
+  var expSheet = ss.getSheetByName('Expenses_Log');
+  if (!expSheet) {
+    expSheet = ss.insertSheet('Expenses_Log');
+  }
+  expSheet.clear();
+  var expHeaders = ['Date', 'Description', 'Category', 'Amount', 'Paid By'];
+  expSheet.appendRow(expHeaders);
+  expSheet.getRange(1, 1, 1, expHeaders.length).setFontWeight('bold').setBackground('#881337').setFontColor('#ffffff');
+  if (payload.dailyExpensesList && payload.dailyExpensesList.length > 0) {
+    var expRows = payload.dailyExpensesList.map(function(ex) {
+      return [ex.date, ex.title, ex.category || '', ex.amount || 0, ex.paidBy || ''];
+    });
+    expSheet.getRange(2, 1, expRows.length, expHeaders.length).setValues(expRows);
+  }
+
+  // 4. Readable Stock Purchases & Supplier Khata in 'Supplier_Ledger'
+  var supSheet = ss.getSheetByName('Supplier_Ledger');
+  if (!supSheet) {
+    supSheet = ss.insertSheet('Supplier_Ledger');
+  }
+  supSheet.clear();
+  var supHeaders = ['Date', 'Supplier / Party', 'Product', 'Size', 'Pieces', 'Bill Amount', 'Paid Now', 'Note', 'Added By'];
+  supSheet.appendRow(supHeaders);
+  supSheet.getRange(1, 1, 1, supHeaders.length).setFontWeight('bold').setBackground('#1e3a8a').setFontColor('#ffffff');
+  if (payload.stockPurchasesList && payload.stockPurchasesList.length > 0) {
+    var supRows = payload.stockPurchasesList.map(function(p) {
+      return [p.date, p.supplier || '', p.category, p.size, p.pieces, p.billAmount || 0, p.paidAmount || 0, p.billNote || '', p.addedBy || ''];
+    });
+    supSheet.getRange(2, 1, supRows.length, supHeaders.length).setValues(supRows);
   }
 
   return ContentService.createTextOutput(JSON.stringify({ status: 'saved' }))
@@ -4551,6 +4814,51 @@ function doPost(e) {
                 </div>
               </div>
             ` : ''}
+          </div>
+
+          <!-- Admin Customizable WhatsApp Message Templates -->
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 space-y-4 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-sm sm:text-base font-bold text-emerald-950">WhatsApp Message Templates (Admin Customizable)</h3>
+                <p class="text-xs text-emerald-800 mt-0.5">
+                  Admin yahan se <strong>1. Receipt Summary Message</strong> aur <strong>2. Due Reminder Message</strong> ka format jab chahein change kar sakte hain.
+                </p>
+              </div>
+              <span class="text-[11px] font-bold bg-emerald-200 text-emerald-950 px-2.5 py-0.5 rounded-full self-start">Auto-Syncs</span>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-white border border-emerald-200 rounded-xl p-3.5 space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-xs font-bold text-slate-900">1. Receipt Summary Message Template</label>
+                  <button type="button" onclick="resetWhatsAppTemplate('receiptWaTemplate')" class="text-[11px] text-blue-800 hover:underline font-semibold">
+                    Reset Default
+                  </button>
+                </div>
+                <textarea id="tplReceiptInput" rows="8"
+                  oninput="updateStoreConfigSilently('receiptWaTemplate', this.value)"
+                  class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-mono leading-relaxed focus:outline-none focus:border-emerald-700">${escapeHTML(storeConfig.receiptWaTemplate || DEFAULT_RECEIPT_WA_TEMPLATE)}</textarea>
+                <p class="text-[10px] text-slate-500 leading-normal">
+                  Tags: <code>{storeName}</code>, <code>{receiptNo}</code>, <code>{date}</code>, <code>{studentName}</code>, <code>{classText}</code>, <code>{itemsList}</code>, <code>{discountLine}</code>, <code>{netTotal}</code>, <code>{paymentMode}</code>, <code>{paidAmount}</code>, <code>{dueLine}</code>
+                </p>
+              </div>
+
+              <div class="bg-white border border-emerald-200 rounded-xl p-3.5 space-y-2">
+                <div class="flex items-center justify-between">
+                  <label class="text-xs font-bold text-slate-900">2. Due Reminder Message Template</label>
+                  <button type="button" onclick="resetWhatsAppTemplate('dueWaTemplate')" class="text-[11px] text-blue-800 hover:underline font-semibold">
+                    Reset Default
+                  </button>
+                </div>
+                <textarea id="tplDueInput" rows="8"
+                  oninput="updateStoreConfigSilently('dueWaTemplate', this.value)"
+                  class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-mono leading-relaxed focus:outline-none focus:border-emerald-700">${escapeHTML(storeConfig.dueWaTemplate || DEFAULT_DUE_WA_TEMPLATE)}</textarea>
+                <p class="text-[10px] text-slate-500 leading-normal">
+                  Tags: <code>{storeName}</code>, <code>{studentName}</code>, <code>{classText}</code>, <code>{itemsSummary}</code>, <code>{date}</code>, <code>{netTotal}</code>, <code>{paidAmount}</code>, <code>{dueAmount}</code>, <code>{upiLine}</code>
+                </p>
+              </div>
+            </div>
           </div>
 
           <div class="bg-white border border-slate-300 rounded-xl p-5 space-y-3 shadow-sm">
@@ -4868,14 +5176,15 @@ function doPost(e) {
         const isChecked = selectedReceiptSaleIds.includes(s.id);
         const disc = Number(s.discount || 0);
         const due = Number(s.dueAmount || 0);
+        const isRet = Boolean(s.isReturned);
         return `
-          <label class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${isChecked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-200 hover:bg-slate-50'}">
+          <label class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${isRet ? 'bg-rose-50/70 border-rose-300 opacity-75' : (isChecked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-200 hover:bg-slate-50')}">
             <input type="checkbox" value="${s.id}" ${isChecked ? 'checked' : ''}
               onchange="toggleReceiptSaleSelection('${s.id}')"
               class="mt-1 rounded text-blue-900 focus:ring-blue-800" />
             <div class="flex-1 text-xs">
               <div class="flex justify-between font-bold text-slate-900">
-                <span>${escapeHTML(s.soldTo)} ${s.studentClass ? `(${escapeHTML(s.studentClass)})` : ''}</span>
+                <span>${escapeHTML(s.soldTo)} ${s.studentClass ? `(${escapeHTML(s.studentClass)})` : ''} ${isRet ? `<span class="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded ml-1">RETURNED</span>` : ''}</span>
                 <span class="text-blue-900">${formatINR(s.amount)}</span>
               </div>
               <div class="text-slate-600 mt-0.5">
@@ -5125,13 +5434,19 @@ function doPost(e) {
                     <p class="font-semibold text-xs text-slate-700 mt-1.5">Customer / Parent Signature</p>
                   </div>
 
-                  ${(storeConfig.qrDataUrl || storeConfig.upiId) ? `
+                  ${(storeConfig.qrDataUrl || storeConfig.upiId) ? (() => {
+                    const qrPayAmt = grandDueAmount > 0 ? grandDueAmount : grandTotalAmount;
+                    const upiUri = storeConfig.upiId ? `upi://pay?pa=${encodeURIComponent(storeConfig.upiId)}&pn=${encodeURIComponent(storeConfig.storeName || 'Store')}&am=${qrPayAmt}&cu=INR` : '';
+                    const dynamicQrUrl = (!storeConfig.qrDataUrl && upiUri) ? `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(upiUri)}` : '';
+                    const finalQrImg = storeConfig.qrDataUrl || dynamicQrUrl;
+                    return `
                   <div class="text-center border border-slate-300 rounded-xl p-2.5 bg-slate-50">
-                    ${storeConfig.qrDataUrl ? `<img src="${storeConfig.qrDataUrl}" alt="UPI QR" style="image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;" class="w-28 h-28 object-contain mx-auto" />` : ''}
+                    ${finalQrImg ? `<img src="${finalQrImg}" crossorigin="anonymous" alt="UPI QR" style="image-rendering: -webkit-optimize-contrast; image-rendering: crisp-edges;" class="w-28 h-28 object-contain mx-auto" />` : ''}
                     ${storeConfig.upiId ? `<p class="text-[10px] font-bold text-slate-800 mt-1">UPI: ${escapeHTML(storeConfig.upiId)}</p>` : ''}
-                    <p class="text-[9px] text-slate-500">Scan &amp; Pay</p>
+                    <p class="text-[9px] text-slate-500">Scan &amp; Pay ${qrPayAmt > 0 ? '(' + formatINR(qrPayAmt) + ')' : ''}</p>
                   </div>
-                  ` : ''}
+                    `;
+                  })() : ''}
 
                   <div class="text-right flex flex-col items-end">
                     <div class="border-b border-slate-400 w-44 h-12"></div>
@@ -5257,9 +5572,30 @@ function doPost(e) {
       }
     }
 
+    function updateStoreConfigSilently(key, value) {
+      storeConfig[key] = value;
+      saveLocalCache();
+      clearTimeout(storeConfigSaveTimer);
+      storeConfigSaveTimer = setTimeout(() => {
+        saveDataAndSync();
+      }, 1000);
+    }
+
+    function resetWhatsAppTemplate(key) {
+      if (!confirm('Kya aap is WhatsApp message template ko default par reset karna chahte hain?')) return;
+      if (key === 'receiptWaTemplate') {
+        storeConfig.receiptWaTemplate = DEFAULT_RECEIPT_WA_TEMPLATE;
+      } else if (key === 'dueWaTemplate') {
+        storeConfig.dueWaTemplate = DEFAULT_DUE_WA_TEMPLATE;
+      }
+      saveDataAndSync();
+      renderContent();
+    }
+
     function sendReceiptTextOnWhatsApp(receiptNo) {
       const selectedSales = salesList.filter(s => selectedReceiptSaleIds.includes(s.id));
       if (!selectedSales.length) return;
+      ensureStoreTemplates();
 
       const primarySale = selectedSales[0];
       const grandSubtotal = selectedSales.reduce((sum, s) => sum + (Number(s.pieces) * Number(s.rate)), 0);
@@ -5272,23 +5608,26 @@ function doPost(e) {
         `${idx + 1}. ${s.category} (Size ${s.size}) x ${s.pieces} Pcs = ₹${Number(s.pieces) * Number(s.rate)}`
       ).join('\n');
 
-      let msg = `*${storeConfig.storeName}*\n`;
-      msg += `Receipt No: *${receiptNo}*\n`;
-      msg += `Date: ${formatDateReadable(primarySale.date)}\n`;
-      msg += `Student/Customer: *${primarySale.soldTo}*${primarySale.studentClass ? ` (${primarySale.studentClass})` : ''}\n`;
-      msg += `------------------------\n`;
-      msg += `${itemsLines}\n`;
-      msg += `------------------------\n`;
-      if (grandDiscount > 0) {
-        msg += `Subtotal: ₹${grandSubtotal}\n`;
-        msg += `Discount: -₹${grandDiscount}\n`;
-      }
-      msg += `*Net Total: ₹${grandTotalAmount}*\n`;
-      msg += `Paid (${primarySale.paymentMode || 'Cash'}): ₹${grandPaidAmount}\n`;
-      if (grandDueAmount > 0) {
-        msg += `*Balance Due: ₹${grandDueAmount}*\n`;
-      }
-      msg += `Thank you!`;
+      const classText = primarySale.studentClass ? ` (${primarySale.studentClass})` : '';
+      const discountLine = grandDiscount > 0 ? `Subtotal: ₹${grandSubtotal}\nDiscount: -₹${grandDiscount}\n` : '';
+      const dueLine = grandDueAmount > 0 ? `*Balance Due: ₹${grandDueAmount}*\n` : '';
+
+      let msg = String(storeConfig.receiptWaTemplate || DEFAULT_RECEIPT_WA_TEMPLATE)
+        .replace(/\{storeName\}/g, storeConfig.storeName || '')
+        .replace(/\{receiptNo\}/g, receiptNo)
+        .replace(/\{date\}/g, formatDateReadable(primarySale.date))
+        .replace(/\{studentName\}/g, primarySale.soldTo || '')
+        .replace(/\{classText\}/g, classText)
+        .replace(/\{studentClass\}/g, primarySale.studentClass || '')
+        .replace(/\{itemsList\}/g, itemsLines)
+        .replace(/\{discountLine\}/g, discountLine)
+        .replace(/\{subtotal\}/g, String(grandSubtotal))
+        .replace(/\{discount\}/g, String(grandDiscount))
+        .replace(/\{netTotal\}/g, String(grandTotalAmount))
+        .replace(/\{paymentMode\}/g, primarySale.paymentMode || 'Cash')
+        .replace(/\{paidAmount\}/g, String(grandPaidAmount))
+        .replace(/\{dueLine\}/g, dueLine)
+        .replace(/\{dueAmount\}/g, String(grandDueAmount));
 
       let rawPhone = String(primarySale.customerPhone || '').replace(/[^0-9]/g, '');
       if (rawPhone.length === 10) {
