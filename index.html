@@ -336,6 +336,11 @@
     const STORAGE_KEY_SCRIPT_URL = 'garment_tracker_gsheet_url_v1';
     const STORAGE_KEY_AUTH_USERS = 'garment_tracker_auth_users_v2';
     const STORAGE_KEY_SESSION = 'garment_tracker_session_v2';
+    const STORAGE_KEY_WALLETS = 'garment_tracker_student_wallets_v1';
+    const STORAGE_KEY_ADJUSTMENTS = 'garment_tracker_stock_adjustments_v1';
+    const STORAGE_KEY_LOCKED_DAYS = 'garment_tracker_locked_days_v1';
+    const STORAGE_KEY_PENDING_SYNC = 'garment_tracker_pending_sync_v1';
+    const STORAGE_KEY_DAILY_SNAPSHOT = 'garment_tracker_daily_snapshot_v1';
 
     function safeParseJSON(key, fallback) {
       try {
@@ -371,6 +376,13 @@
     let classCombosList = safeParseJSON(STORAGE_KEY_COMBOS, []);
     let dailyExpensesList = safeParseJSON(STORAGE_KEY_EXPENSES, []);
     let supplierPaymentsList = safeParseJSON(STORAGE_KEY_SUPPLIER_PAYMENTS, []);
+    let studentWallets = safeParseJSON(STORAGE_KEY_WALLETS, {});
+    let stockAdjustmentsList = safeParseJSON(STORAGE_KEY_ADJUSTMENTS, []);
+    let lockedClosingDates = safeParseJSON(STORAGE_KEY_LOCKED_DAYS, []);
+    let hasPendingOfflineSync = Boolean(localStorage.getItem(STORAGE_KEY_PENDING_SYNC));
+    let bulkReminderQueue = [];
+    let bulkReminderIndex = 0;
+    let isBulkReminderOpen = false;
     let isNavMenuOpen = false;
     let comboDraftItems = [];
     let activityLogsList = safeParseJSON(STORAGE_KEY_AUDIT, []);
@@ -408,7 +420,9 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       qrDataUrl: '',
       footerNote: 'Thank you for your purchase! Goods once sold can be exchanged within 7 days with original receipt.',
       receiptWaTemplate: DEFAULT_RECEIPT_WA_TEMPLATE,
-      dueWaTemplate: DEFAULT_DUE_WA_TEMPLATE
+      dueWaTemplate: DEFAULT_DUE_WA_TEMPLATE,
+      staffMaxDiscount: 50,
+      discountApprovalPin: '9999'
     });
 
     function ensureStoreTemplates() {
@@ -417,6 +431,12 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       }
       if (!storeConfig.dueWaTemplate || !String(storeConfig.dueWaTemplate).trim()) {
         storeConfig.dueWaTemplate = DEFAULT_DUE_WA_TEMPLATE;
+      }
+      if (storeConfig.staffMaxDiscount === undefined || storeConfig.staffMaxDiscount === null || storeConfig.staffMaxDiscount === '') {
+        storeConfig.staffMaxDiscount = 50;
+      }
+      if (!storeConfig.discountApprovalPin || !String(storeConfig.discountApprovalPin).trim()) {
+        storeConfig.discountApprovalPin = '9999';
       }
     }
     ensureStoreTemplates();
@@ -471,6 +491,9 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
     if (!Array.isArray(classCombosList)) classCombosList = [];
     if (!Array.isArray(dailyExpensesList)) dailyExpensesList = [];
     if (!Array.isArray(supplierPaymentsList)) supplierPaymentsList = [];
+    if (!studentWallets || typeof studentWallets !== 'object' || Array.isArray(studentWallets)) studentWallets = {};
+    if (!Array.isArray(stockAdjustmentsList)) stockAdjustmentsList = [];
+    if (!Array.isArray(lockedClosingDates)) lockedClosingDates = [];
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -562,7 +585,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'StockMatrix', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'StockMatrix', 'StudentWallets', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -948,6 +971,39 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       }
     }
 
+    function saveDailyAutoSnapshot() {
+      try {
+        const today = getTodayDate();
+        const existing = safeParseJSON(STORAGE_KEY_DAILY_SNAPSHOT, null);
+        if (!existing || existing.date !== today || (existing.salesCount || 0) !== salesList.length) {
+          const snap = {
+            date: today,
+            savedAt: new Date().toISOString(),
+            salesCount: salesList.length,
+            payload: {
+              app: 'Garment_Stock_POS_AutoSnapshot',
+              exportedAt: new Date().toISOString(),
+              stockConfig,
+              salesList,
+              stockPurchasesList,
+              preOrdersList,
+              classCombosList,
+              dailyExpensesList,
+              supplierPaymentsList,
+              studentWallets,
+              stockAdjustmentsList,
+              lockedClosingDates,
+              storeConfig,
+              authUsers
+            }
+          };
+          localStorage.setItem(STORAGE_KEY_DAILY_SNAPSHOT, JSON.stringify(snap));
+        }
+      } catch (e) {
+        console.warn('Auto snapshot skipped (storage full):', e);
+      }
+    }
+
     function saveLocalCache() {
       localStorage.setItem(STORAGE_KEY_STOCK, JSON.stringify(stockConfig));
       localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(salesList));
@@ -956,14 +1012,25 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       localStorage.setItem(STORAGE_KEY_COMBOS, JSON.stringify(classCombosList));
       localStorage.setItem(STORAGE_KEY_EXPENSES, JSON.stringify(dailyExpensesList));
       localStorage.setItem(STORAGE_KEY_SUPPLIER_PAYMENTS, JSON.stringify(supplierPaymentsList));
+      localStorage.setItem(STORAGE_KEY_WALLETS, JSON.stringify(studentWallets));
+      localStorage.setItem(STORAGE_KEY_ADJUSTMENTS, JSON.stringify(stockAdjustmentsList));
+      localStorage.setItem(STORAGE_KEY_LOCKED_DAYS, JSON.stringify(lockedClosingDates));
       localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(activityLogsList));
       localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
       localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
+      saveDailyAutoSnapshot();
     }
 
     async function saveDataAndSync() {
       saveLocalCache();
       if (!googleScriptUrl) return;
+
+      if (!navigator.onLine) {
+        hasPendingOfflineSync = true;
+        localStorage.setItem(STORAGE_KEY_PENDING_SYNC, new Date().toISOString());
+        updateSyncBadge('error', 'Offline Saved (Queued for Sync)');
+        return;
+      }
 
       isSavingToCloud = true;
       try {
@@ -981,24 +1048,43 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             classCombosList: classCombosList,
             dailyExpensesList: dailyExpensesList,
             supplierPaymentsList: supplierPaymentsList,
+            studentWallets: studentWallets,
+            stockAdjustmentsList: stockAdjustmentsList,
+            lockedClosingDates: lockedClosingDates,
             activityLogsList: activityLogsList,
             storeConfig: storeConfig,
             authUsers: authUsers,
             updatedAt: new Date().toISOString()
           })
         });
+        hasPendingOfflineSync = false;
+        localStorage.removeItem(STORAGE_KEY_PENDING_SYNC);
         updateSyncBadge('connected', 'Live Auto-Sync ON');
       } catch (err) {
         console.error('Save sync error:', err);
-        updateSyncBadge('error', 'Offline / Sync Failed');
+        hasPendingOfflineSync = true;
+        localStorage.setItem(STORAGE_KEY_PENDING_SYNC, new Date().toISOString());
+        updateSyncBadge('error', 'Offline Saved (Will Auto-Sync)');
       } finally {
         setTimeout(() => { isSavingToCloud = false; }, 6000);
       }
     }
 
+    window.addEventListener('online', () => {
+      if (hasPendingOfflineSync && googleScriptUrl) {
+        saveDataAndSync();
+      }
+    });
+
     async function syncFromGoogleSheet(showToast = false, isSilentBackground = false) {
       if (!googleScriptUrl) {
         updateSyncBadge('local', 'Local Only (Setup Sync)');
+        return;
+      }
+
+      if (hasPendingOfflineSync && navigator.onLine) {
+        await saveDataAndSync();
+        if (showToast) alert('Offline mein save kiya gaya data ab Google Sheet par sync ho gaya hai!');
         return;
       }
 
@@ -1073,6 +1159,27 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             }
           }
 
+          if (data.studentWallets && typeof data.studentWallets === 'object' && !Array.isArray(data.studentWallets)) {
+            if (JSON.stringify(data.studentWallets) !== JSON.stringify(studentWallets)) {
+              studentWallets = data.studentWallets;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.stockAdjustmentsList)) {
+            if (JSON.stringify(data.stockAdjustmentsList) !== JSON.stringify(stockAdjustmentsList)) {
+              stockAdjustmentsList = data.stockAdjustmentsList;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.lockedClosingDates)) {
+            if (JSON.stringify(data.lockedClosingDates) !== JSON.stringify(lockedClosingDates)) {
+              lockedClosingDates = data.lockedClosingDates;
+              changed = true;
+            }
+          }
+
           if (Array.isArray(data.activityLogsList)) {
             if (JSON.stringify(data.activityLogsList) !== JSON.stringify(activityLogsList)) {
               activityLogsList = data.activityLogsList;
@@ -1141,14 +1248,78 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
     function getTodayDate() {
       const d = new Date();
-      return d.toISOString().split('T')[0];
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
     }
 
     function formatDateReadable(dateStr) {
       if (!dateStr) return '-';
-      const parts = dateStr.split('-');
-      if (parts.length !== 3) return dateStr;
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      const clean = String(dateStr).trim().split('T')[0];
+      const parts = clean.split('-');
+      if (parts.length !== 3) return clean;
+      if (parts[0].length === 4) {
+        return `${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+      return clean;
+    }
+
+    function isDateLocked(dateStr) {
+      return Array.isArray(lockedClosingDates) && lockedClosingDates.includes(dateStr);
+    }
+
+    function verifyStaffDiscountApproval(discountAmount) {
+      if (isAdminUser()) return true;
+      const limit = Math.max(0, Number(storeConfig.staffMaxDiscount || 0));
+      if (discountAmount <= limit) return true;
+      const pin = prompt(
+        `Discount Alert: Staff ke liye maximum discount limit ₹${limit} hai (aap ₹${discountAmount} de rahe hain).\n\nApprove karne ke liye Admin Discount PIN dalein:`
+      );
+      if (pin === null) return false;
+      if (String(pin).trim() === String(storeConfig.discountApprovalPin || '9999').trim()) {
+        logStaffActivity('Discount Approved via PIN', `Discount of ₹${discountAmount} approved by PIN`);
+        return true;
+      }
+      alert('Galat Discount PIN! Discount approve nahi hua.');
+      return false;
+    }
+
+    function getStudentWalletKey(studentName, studentClass = '') {
+      const n = String(studentName || '').trim().toLowerCase();
+      const c = String(studentClass || '').trim().toLowerCase();
+      return c ? `${n}||${c}` : n;
+    }
+
+    function getStudentWalletBalance(studentName, studentClass = '') {
+      if (!studentName || !String(studentName).trim()) return 0;
+      const exactKey = getStudentWalletKey(studentName, studentClass);
+      if (studentWallets[exactKey] && Number(studentWallets[exactKey].balance) > 0) {
+        return Number(studentWallets[exactKey].balance);
+      }
+      const nameOnlyKey = getStudentWalletKey(studentName, '');
+      if (studentWallets[nameOnlyKey] && Number(studentWallets[nameOnlyKey].balance) > 0) {
+        return Number(studentWallets[nameOnlyKey].balance);
+      }
+      return 0;
+    }
+
+    function adjustStudentWalletBalance(studentName, studentClass, deltaAmount, noteText = '') {
+      const cleanName = String(studentName || '').trim();
+      if (!cleanName) return;
+      const cleanClass = String(studentClass || '').trim();
+      const key = getStudentWalletKey(cleanName, cleanClass);
+      if (!studentWallets[key]) {
+        studentWallets[key] = {
+          studentName: cleanName,
+          studentClass: cleanClass,
+          balance: 0,
+          updatedAt: getTodayDate()
+        };
+      }
+      studentWallets[key].balance = Math.max(0, Number(studentWallets[key].balance || 0) + Number(deltaAmount || 0));
+      studentWallets[key].updatedAt = getTodayDate();
+      if (noteText) studentWallets[key].lastNote = noteText;
     }
 
     function numberToWordsINR(num) {
@@ -1181,11 +1352,15 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       let totalRemainingValue = 0;
 
       const activeCatSales = catSales.filter(s => !s.isReturned);
+      const catAdjustments = stockAdjustmentsList.filter(a => a.category === category);
       const rows = items.map((item, index) => {
         const soldQty = activeCatSales
           .filter(s => String(s.size).trim().toLowerCase() === String(item.size).trim().toLowerCase())
           .reduce((sum, s) => sum + Number(s.pieces), 0);
-        const available = Number(item.opening) - soldQty;
+        const damagedQty = catAdjustments
+          .filter(a => String(a.size).trim().toLowerCase() === String(item.size).trim().toLowerCase())
+          .reduce((sum, a) => sum + Number(a.pieces || 0), 0);
+        const available = Number(item.opening) - soldQty - damagedQty;
         const stockValue = available * Number(item.price);
 
         totalOpening += Number(item.opening);
@@ -1336,6 +1511,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
         case 'StockMatrix':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>`;
+        case 'StudentWallets':
+          return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg>`;
         case 'Summary':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`;
         case 'Receipt':
@@ -1363,8 +1540,10 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         allNavItems.push({ id: cat, label: cat + ' Stock & Billing', iconBg: 'bg-indigo-100 text-indigo-800' });
       });
 
+      const activeWalletsCount = Object.values(studentWallets || {}).filter(w => Number(w.balance) > 0).length;
       allNavItems.push(
         { id: 'StockMatrix', label: 'All Stock Matrix (Size-Wise)', iconBg: 'bg-cyan-100 text-cyan-800' },
+        { id: 'StudentWallets', label: 'Student Advance Wallet (Jama)', count: activeWalletsCount, badgeColor: 'bg-emerald-600', iconBg: 'bg-emerald-100 text-emerald-800' },
         { id: 'PreOrders', label: 'Pre-Orders', count: pendingPreOrdersCount, badgeColor: 'bg-amber-600', iconBg: 'bg-amber-100 text-amber-800' },
         { id: 'StockInward', label: '+ Stock Purchase & Supplier Khata', iconBg: 'bg-emerald-100 text-emerald-800' },
         { id: 'PendingDues', label: 'Pending Dues (Udhaar)', count: pendingCount, badgeColor: 'bg-rose-600', iconBg: 'bg-rose-100 text-rose-700' },
@@ -1500,6 +1679,11 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         return;
       }
 
+      if (currentTab === 'StudentWallets') {
+        renderStudentWalletsTab(container);
+        return;
+      }
+
       if (currentTab === 'PreOrders') {
         renderPreOrdersTab(container);
         return;
@@ -1610,6 +1794,50 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
                   </tfoot>
                 </table>
               </div>
+            </div>
+
+            <!-- Top-Selling Sizes & Fast-Moving Insights -->
+            <div>
+              <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 mb-3">
+                <h2 class="text-lg font-bold text-slate-800">Top-Selling Sizes &amp; Reorder Insights</h2>
+                <span class="text-xs text-slate-500">Sabse zyada bikne wale sizes taaki wholesaler ko sahi order diya ja sake</span>
+              </div>
+              ${(() => {
+                const sizeStats = [];
+                Object.keys(stockConfig).forEach(cat => {
+                  const m = calculateCategoryMetrics(cat);
+                  m.rows.forEach(r => {
+                    sizeStats.push({ category: cat, size: r.size, sold: r.sold, available: r.available, opening: r.opening });
+                  });
+                });
+                const topSold = sizeStats.filter(x => x.sold > 0).sort((a, b) => b.sold - a.sold).slice(0, 8);
+                if (!topSold.length) {
+                  return `<div class="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-4 text-xs text-slate-500 text-center">Abhi tak koi sale record nahi hui hai.</div>`;
+                }
+                const maxSold = Math.max(1, topSold[0].sold);
+                return `
+                  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                    ${topSold.map((it, idx) => {
+                      const pct = Math.round((it.sold / maxSold) * 100);
+                      return `
+                        <div class="bg-white border border-slate-200 rounded-xl p-3.5 shadow-xs space-y-2">
+                          <div class="flex items-center justify-between">
+                            <span class="text-xs font-extrabold text-blue-950">#${idx + 1} ${escapeHTML(it.category)} (Size ${escapeHTML(it.size)})</span>
+                            <span class="text-[11px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">${it.sold} Sold</span>
+                          </div>
+                          <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                            <div class="bg-blue-800 h-2 rounded-full" style="width: ${pct}%"></div>
+                          </div>
+                          <div class="flex justify-between text-[11px] text-slate-500">
+                            <span>Inward: <strong>${it.opening}</strong></span>
+                            <span class="${it.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600 font-bold' : 'text-emerald-700 font-semibold'}">Left: ${it.available} Pcs</span>
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `;
+              })()}
             </div>
 
             <!-- Class-Wise Distribution Summary Table (#3) -->
@@ -1886,7 +2114,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const paymentHistoryRowsHTML = supplierPaymentsList.length ? supplierPaymentsList.slice().reverse().map((sp, idx) => `
         <tr class="hover:bg-slate-50">
           <td class="px-3 py-2 text-center text-slate-500">${supplierPaymentsList.length - idx}</td>
-          <td class="px-3 py-2 text-center whitespace-nowrap">${sp.date}</td>
+          <td class="px-3 py-2 text-center whitespace-nowrap">${formatDateReadable(sp.date)}</td>
           <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(sp.supplier)}</td>
           <td class="px-3 py-2 text-center text-xs">${escapeHTML(sp.paymentMode || 'Cash')}</td>
           <td class="px-3 py-2 text-xs text-slate-600">${escapeHTML(sp.note || '-')}</td>
@@ -1904,7 +2132,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         return `
         <tr class="hover:bg-slate-50">
           <td class="px-3 py-2.5 text-center text-slate-500">${stockPurchasesList.length - idx}</td>
-          <td class="px-3 py-2.5 text-center whitespace-nowrap">${p.date}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${formatDateReadable(p.date)}</td>
           <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(p.category)} (Size ${escapeHTML(p.size)})</td>
           <td class="px-3 py-2.5 text-center font-extrabold text-emerald-700">+${p.pieces} Pcs</td>
           <td class="px-3 py-2.5 font-semibold text-slate-800">${escapeHTML(p.supplier || '-')}</td>
@@ -2114,10 +2342,136 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
               </table>
             </div>
           </div>
+
+          <!-- 4. Damaged / Defective / Sample Stock Deduction Log -->
+          <div class="bg-amber-50/70 border border-amber-300 rounded-xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-base sm:text-lg font-bold text-amber-950">Damaged / Defective / Sample Stock Deduction</h3>
+                <p class="text-xs text-amber-900">Koi piece defective nikla, kharab hua, ya school office mein sample ke liye rakha gaya toh yahan entry karein — stock automatic minus hoga.</p>
+              </div>
+              <span class="text-xs font-bold bg-amber-200 text-amber-950 px-3 py-1 rounded-full self-start">
+                Total Deducted: ${stockAdjustmentsList.reduce((s, a) => s + Number(a.pieces || 0), 0)} Pcs
+              </span>
+            </div>
+
+            <form onsubmit="handleAddStockAdjustment(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Product *</label>
+                <select id="adjCategory" onchange="updateAdjustmentSizeOptions()" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold">
+                  ${catOptions}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Size *</label>
+                <select id="adjSize" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold">
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-rose-800 mb-1">Deduct Pieces *</label>
+                <input type="number" id="adjPieces" min="1" value="1" required
+                  class="w-full bg-white border border-rose-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Reason *</label>
+                <select id="adjReason"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm">
+                  <option value="Damaged / Torn">Damaged / Torn</option>
+                  <option value="Manufacturing Defect">Manufacturing Defect</option>
+                  <option value="School Office Sample">School Office Sample</option>
+                  <option value="Lost / Stock Audit">Lost / Stock Audit</option>
+                </select>
+              </div>
+              <div>
+                <button type="submit"
+                  class="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs sm:text-sm py-2.5 px-3 rounded-lg shadow transition">
+                  - Deduct from Stock
+                </button>
+              </div>
+            </form>
+
+            ${stockAdjustmentsList.length > 0 ? `
+            <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-800 text-white">
+                  <tr>
+                    <th class="px-3 py-2 text-center">#</th>
+                    <th class="px-3 py-2 text-center">Date</th>
+                    <th class="px-3 py-2 text-left">Item &amp; Size</th>
+                    <th class="px-3 py-2 text-center">Deducted Qty</th>
+                    <th class="px-3 py-2 text-left">Reason</th>
+                    <th class="px-3 py-2 text-left">By</th>
+                    <th class="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${stockAdjustmentsList.slice().reverse().map((adj, idx) => `
+                    <tr>
+                      <td class="px-3 py-2 text-center text-slate-500">${stockAdjustmentsList.length - idx}</td>
+                      <td class="px-3 py-2 text-center whitespace-nowrap">${formatDateReadable(adj.date)}</td>
+                      <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(adj.category)} (Size ${escapeHTML(adj.size)})</td>
+                      <td class="px-3 py-2 text-center font-bold text-rose-600">-${adj.pieces} Pcs</td>
+                      <td class="px-3 py-2 text-slate-700">${escapeHTML(adj.reason)}</td>
+                      <td class="px-3 py-2 text-slate-500">${escapeHTML(adj.by || '-')}</td>
+                      <td class="px-3 py-2 text-center">
+                        ${isAdminUser() ? `<button type="button" onclick="deleteStockAdjustment('${adj.id}')" class="text-xs text-rose-600 font-bold">Undo</button>` : '-'}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ` : ''}
+          </div>
         </div>
       `;
 
       updateInwardSizeOptions();
+      updateAdjustmentSizeOptions();
+    }
+
+    function updateAdjustmentSizeOptions() {
+      const catEl = document.getElementById('adjCategory');
+      const sizeEl = document.getElementById('adjSize');
+      if (!catEl || !sizeEl) return;
+      const items = stockConfig[catEl.value] || [];
+      sizeEl.innerHTML = items.map(i => `<option value="${escapeHTML(i.size)}">Size ${escapeHTML(i.size)}</option>`).join('');
+    }
+
+    function handleAddStockAdjustment(e) {
+      e.preventDefault();
+      const category = document.getElementById('adjCategory').value;
+      const size = String(document.getElementById('adjSize').value);
+      const pieces = Math.max(1, Number(document.getElementById('adjPieces').value) || 1);
+      const reason = document.getElementById('adjReason').value;
+      const avail = getAvailableStockForSize(category, size);
+      if (pieces > avail) {
+        alert(`Sirf ${avail} Pcs stock mein available hain!`);
+        return;
+      }
+      stockAdjustmentsList.push({
+        id: 'ADJ-' + Date.now(),
+        date: getTodayDate(),
+        category,
+        size,
+        pieces,
+        reason,
+        by: currentSession ? currentSession.displayName : 'Staff'
+      });
+      logStaffActivity('Stock Deduction', `-${pieces} Pcs ${category} Size ${size} (${reason})`);
+      saveDataAndSync();
+      renderContent();
+      alert(`${pieces} Pcs stock se deduct kar diya gaya hai.`);
+    }
+
+    function deleteStockAdjustment(adjId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is stock deduction ko undo karna chahte hain?')) return;
+      stockAdjustmentsList = stockAdjustmentsList.filter(a => a.id !== adjId);
+      saveDataAndSync();
+      renderContent();
     }
 
     function updateInwardSizeOptions() {
@@ -2309,6 +2663,112 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       `;
     }
 
+    // ==================== STUDENT ADVANCE WALLET (JAMA KHATA) TAB ====================
+    function renderStudentWalletsTab(container) {
+      const entries = Object.entries(studentWallets || {}).map(([key, val]) => ({ key, ...val }));
+      const totalJama = entries.reduce((s, w) => s + Number(w.balance || 0), 0);
+
+      const rowsHTML = entries.length ? entries.slice().reverse().map((w, idx) => `
+        <tr class="hover:bg-emerald-50/40">
+          <td class="px-3 py-2.5 text-center text-slate-500">${entries.length - idx}</td>
+          <td class="px-3 py-2.5 font-bold text-slate-900">
+            ${escapeHTML(w.studentName)}
+            ${w.studentClass ? `<span class="ml-1.5 bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(w.studentClass)}</span>` : ''}
+          </td>
+          <td class="px-3 py-2.5 text-center text-xs text-slate-600">${formatDateReadable(w.updatedAt || '')}</td>
+          <td class="px-3 py-2.5 text-xs text-slate-600">${escapeHTML(w.lastNote || '-')}</td>
+          <td class="px-3 py-2.5 text-right font-extrabold text-emerald-700">${formatINR(w.balance)}</td>
+          <td class="px-3 py-2.5 text-center">
+            ${isAdminUser() ? `<button type="button" onclick="deleteStudentWallet('${escapeHTML(w.key)}')" class="text-xs text-rose-600 font-bold">Clear</button>` : '-'}
+          </td>
+        </tr>
+      `).join('') : `<tr><td colspan="6" class="py-8 text-center text-xs text-slate-500">Abhi kisi student ka Advance Jama balance nahi hai.</td></tr>`;
+
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="bg-emerald-50/80 border border-emerald-200 rounded-xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 class="text-lg font-bold text-emerald-950">Student Advance Deposit / Jama Khata (Wallet)</h2>
+                <p class="text-xs text-emerald-800">Agar parent ne extra paisa jama kiya hai (ya item return ke baad credit rakha hai), toh yahan jama likhein — agli kharidari par Quick POS mein automatic adjust hoga!</p>
+              </div>
+              <span class="text-xs font-extrabold bg-emerald-200 text-emerald-950 px-3.5 py-1.5 rounded-full self-start">
+                Total Advance Jama Held: ${formatINR(totalJama)}
+              </span>
+            </div>
+
+            <form onsubmit="handleAddStudentWalletDeposit(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Student Name *</label>
+                <input type="text" id="walStudentName" list="posStudentDatalist" placeholder="Enter Student Name" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Class</label>
+                <select id="walStudentClass" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm">
+                  ${getClassSelectOptionsHTML()}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Advance Deposit (₹) *</label>
+                <input type="number" id="walAmountInput" min="1" placeholder="e.g. 500" required
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-xs sm:text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Note / Receipt Ref</label>
+                <input type="text" id="walNoteInput" placeholder="e.g. Paid ₹2000 for ₹1650 bill"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm" />
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
+                  + Add Jama Balance
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-lg bg-white">
+            <table class="min-w-full text-sm">
+              <thead class="bg-slate-800 text-white text-xs">
+                <tr>
+                  <th class="px-3 py-3 text-center">#</th>
+                  <th class="px-3 py-3 text-left">Student Name &amp; Class</th>
+                  <th class="px-3 py-3 text-center">Updated Date</th>
+                  <th class="px-3 py-3 text-left">Note</th>
+                  <th class="px-3 py-3 text-right">Available Jama Balance</th>
+                  <th class="px-3 py-3 text-center">Action</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200">${rowsHTML}</tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAddStudentWalletDeposit(e) {
+      e.preventDefault();
+      const name = document.getElementById('walStudentName').value.trim();
+      const cls = document.getElementById('walStudentClass').value;
+      const amt = Math.max(1, Number(document.getElementById('walAmountInput').value) || 0);
+      const note = document.getElementById('walNoteInput').value.trim();
+      if (!name || amt <= 0) return;
+
+      adjustStudentWalletBalance(name, cls, amt, note || 'Advance Deposit');
+      logStaffActivity('Wallet Deposit', `+₹${amt} added to ${name} (${cls || 'No Class'})`);
+      saveDataAndSync();
+      renderContent();
+      alert(`${name} ke Advance Wallet mein ₹${amt} jama ho gaya hai!`);
+    }
+
+    function deleteStudentWallet(key) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is student ka wallet balance clear karna chahte hain?')) return;
+      delete studentWallets[key];
+      saveDataAndSync();
+      renderContent();
+    }
+
     // ==================== STUDENT AUTO-COMPLETE HELPER ====================
     function getUniqueStudentDirectory() {
       const map = new Map();
@@ -2342,6 +2802,31 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       if (clsEl && !clsEl.value && match.studentClass) clsEl.value = match.studentClass;
       if (metaEl && !metaEl.value && match.customerMeta) metaEl.value = match.customerMeta;
       if (phoneEl && !phoneEl.value && match.customerPhone) phoneEl.value = match.customerPhone;
+      updatePosWalletBanner();
+    }
+
+    function updatePosWalletBanner() {
+      const box = document.getElementById('posWalletAlertBox');
+      if (!box) return;
+      const nameVal = (document.getElementById('posSoldTo') ? document.getElementById('posSoldTo').value : '').trim();
+      const clsVal = document.getElementById('posStudentClass') ? document.getElementById('posStudentClass').value : '';
+      const bal = getStudentWalletBalance(nameVal, clsVal);
+      if (bal > 0) {
+        box.classList.remove('hidden');
+        box.innerHTML = `
+          <div class="bg-emerald-100 border border-emerald-300 text-emerald-950 rounded-xl p-2.5 text-xs flex items-center justify-between gap-2">
+            <span>Advance Jama Balance Available: <strong class="text-sm">${formatINR(bal)}</strong></span>
+            <label class="inline-flex items-center gap-1.5 font-bold cursor-pointer">
+              <input type="checkbox" id="posUseWalletCheck" checked onchange="recalcPosTotals(false)" class="rounded text-emerald-700" />
+              <span>Adjust in Bill</span>
+            </label>
+          </div>
+        `;
+      } else {
+        box.classList.add('hidden');
+        box.innerHTML = '';
+      }
+      recalcPosTotals(false);
     }
 
     // ==================== QUICK POS / MULTI-ITEM CART TAB ====================
@@ -2489,7 +2974,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
               </div>
               <div>
                 <label class="block text-xs font-semibold text-blue-900 mb-1">Class *</label>
-                <select id="posStudentClass"
+                <select id="posStudentClass" onchange="updatePosWalletBanner()"
                   class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:border-blue-800">
                   ${getClassSelectOptionsHTML()}
                 </select>
@@ -2530,6 +3015,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
                   class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-800" />
               </div>
             </div>
+
+            <div id="posWalletAlertBox" class="hidden"></div>
 
             <div class="bg-white border border-slate-300 rounded-xl p-3.5 space-y-1.5 text-xs">
               <div class="flex justify-between text-slate-600">
@@ -2592,7 +3079,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
       const rowsHTML = matchedSales.slice().reverse().map(s => `
         <tr class="${s.isReturned ? 'bg-rose-50/60 text-slate-400 line-through' : 'border-b border-slate-200'}">
-          <td class="py-2 px-3 text-center whitespace-nowrap">${s.date}</td>
+          <td class="py-2 px-3 text-center whitespace-nowrap">${formatDateReadable(s.date)}</td>
           <td class="py-2 px-3 font-semibold">${escapeHTML(s.category)} (Size ${escapeHTML(s.size)})</td>
           <td class="py-2 px-3 text-center font-bold">${s.pieces}</td>
           <td class="py-2 px-3 text-right font-bold text-blue-900">${formatINR(s.amount)}</td>
@@ -2872,7 +3359,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         const balanceLeft = Math.max(0, Number(po.estimatedTotal || 0) - Number(po.advancePaid || 0));
         return `
           <tr class="${isDelivered ? 'bg-slate-50 text-slate-500' : 'hover:bg-amber-50/40'}">
-            <td class="px-3 py-2.5 text-center whitespace-nowrap">${po.date}</td>
+            <td class="px-3 py-2.5 text-center whitespace-nowrap">${formatDateReadable(po.date)}</td>
             <td class="px-3 py-2.5 font-bold text-slate-900">
               ${escapeHTML(po.studentName)}
               ${po.studentClass ? `<span class="ml-1 bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(po.studentClass)}</span>` : ''}
@@ -3149,28 +3636,41 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       renderContent();
     }
 
-    // ==================== FULL BILL RETURN / REFUND MODAL (#2) ====================
+    // ==================== FULL & PARTIAL BILL RETURN / REFUND MODAL ====================
     function openRefundModal(saleId) {
       const sale = salesList.find(s => s.id === saleId);
       if (!sale || sale.isReturned) return;
 
+      const maxPcs = Math.max(1, Number(sale.pieces || 1));
       const body = document.getElementById('refundModalBody');
       body.innerHTML = `
         <div class="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs space-y-1">
           <p>Student / Customer: <strong class="text-slate-900">${escapeHTML(sale.soldTo)}</strong> ${sale.studentClass ? `(${escapeHTML(sale.studentClass)})` : ''}</p>
-          <p>Item to Return: <strong>${escapeHTML(sale.category)} — Size ${escapeHTML(sale.size)} (${sale.pieces} Pcs)</strong></p>
-          <p>Paid Amount to Refund: <strong class="text-rose-700 text-sm">${formatINR(sale.paidAmount)}</strong></p>
-          <p class="text-slate-600 pt-1">Confirm karne par <strong>${sale.pieces} Pcs</strong> wapas stock mein jud jayenge aur ye bill <strong>RETURNED</strong> mark ho jayega.</p>
+          <p>Item Purchased: <strong>${escapeHTML(sale.category)} — Size ${escapeHTML(sale.size)} (${maxPcs} Pcs)</strong></p>
+          <p>Net Bill: <strong>${formatINR(sale.amount)}</strong> | Paid: <strong class="text-emerald-700">${formatINR(sale.paidAmount)}</strong> | Due: <strong class="text-rose-700">${formatINR(sale.dueAmount)}</strong></p>
         </div>
 
         <form onsubmit="submitBillRefund(event, '${sale.id}')" class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Return Quantity (Max ${maxPcs} Pcs) *</label>
+            <input type="number" id="refundQtyInput" min="1" max="${maxPcs}" value="${maxPcs}" required
+              class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+            <p class="text-[11px] text-slate-500 mt-1">Agar ${maxPcs} mein se 1 piece return karna hai toh 1 dalein (Partial Return).</p>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 mb-1">Refund Settlement Mode</label>
+            <select id="refundSettlementMode" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold">
+              <option value="cash">Cash / UPI Refund to Parent</option>
+              <option value="wallet">Add Refund to Student Advance Wallet (Jama Khata)</option>
+            </select>
+          </div>
           <div>
             <label class="block text-xs font-semibold text-slate-700 mb-1">Return Reason (Optional)</label>
             <input type="text" id="refundReasonInput" placeholder="e.g. Size did not fit / Cancelled"
               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <button type="submit" class="w-full bg-rose-700 hover:bg-rose-800 text-white font-bold text-sm py-2.5 rounded-lg shadow">
-            Confirm Return &amp; Restock (${sale.pieces} Pcs)
+            Confirm Return &amp; Restock
           </button>
         </form>
       `;
@@ -3186,20 +3686,81 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const sale = salesList.find(s => s.id === saleId);
       if (!sale || sale.isReturned) return;
 
+      const totalPcs = Math.max(1, Number(sale.pieces || 1));
+      const retQty = Math.min(totalPcs, Math.max(1, Number(document.getElementById('refundQtyInput').value) || totalPcs));
+      const settleMode = document.getElementById('refundSettlementMode').value;
       const reason = document.getElementById('refundReasonInput').value.trim();
-      sale.refundedAmount = Number(sale.paidAmount || 0);
-      sale.isReturned = true;
-      sale.amount = 0;
-      sale.paidAmount = 0;
-      sale.dueAmount = 0;
-      sale.returnDate = getTodayDate();
-      sale.returnReason = reason || 'Returned';
 
-      logStaffActivity('Bill Returned', `${sale.soldTo}: ${sale.category} Size ${sale.size} (${sale.pieces} Pcs), Refunded ₹${sale.refundedAmount}`);
+      if (retQty === totalPcs) {
+        // Full line return
+        const refundAmt = Number(sale.paidAmount || 0);
+        sale.refundedAmount = refundAmt;
+        sale.isReturned = true;
+        sale.amount = 0;
+        sale.paidAmount = 0;
+        sale.dueAmount = 0;
+        sale.returnDate = getTodayDate();
+        sale.returnReason = reason || 'Returned';
+
+        if (settleMode === 'wallet' && refundAmt > 0) {
+          adjustStudentWalletBalance(sale.soldTo, sale.studentClass, refundAmt, `Refund credit (${sale.category} Size ${sale.size})`);
+        }
+        logStaffActivity('Bill Returned', `${sale.soldTo}: ${sale.category} Size ${sale.size} (${retQty} Pcs), Refund ₹${refundAmt} (${settleMode})`);
+      } else {
+        // Partial quantity return: reduce active pieces & proportionally adjust net, paid, due
+        const keepQty = totalPcs - retQty;
+        const origNet = Number(sale.amount || 0);
+        const origPaid = Number(sale.paidAmount || 0);
+        const origDisc = Number(sale.discount || 0);
+
+        const newNet = Math.round((origNet / totalPcs) * keepQty);
+        const newDisc = Math.round((origDisc / totalPcs) * keepQty);
+        const retShareOfPaid = Math.max(0, origPaid - newNet);
+        const newPaid = Math.min(newNet, origPaid);
+        const newDue = Math.max(0, newNet - newPaid);
+
+        sale.pieces = keepQty;
+        sale.discount = newDisc;
+        sale.amount = newNet;
+        sale.paidAmount = newPaid;
+        sale.dueAmount = newDue;
+
+        // Also record a returned audit row so stock & refund history stays 100% transparent
+        salesList.push({
+          id: 'RET-' + Date.now(),
+          invoiceGroupId: sale.invoiceGroupId || '',
+          date: sale.date,
+          soldTo: sale.soldTo,
+          studentClass: sale.studentClass || '',
+          customerPhone: sale.customerPhone || '',
+          customerMeta: sale.customerMeta || '',
+          category: sale.category,
+          size: sale.size,
+          pieces: retQty,
+          rate: sale.rate,
+          discount: 0,
+          amount: 0,
+          paidAmount: 0,
+          dueAmount: 0,
+          paymentMode: sale.paymentMode || 'Cash',
+          soldBy: sale.soldBy || '',
+          inHandOf: sale.inHandOf || '',
+          isReturned: true,
+          refundedAmount: retShareOfPaid,
+          returnDate: getTodayDate(),
+          returnReason: reason || `Partial Return (${retQty} of ${totalPcs} Pcs)`
+        });
+
+        if (settleMode === 'wallet' && retShareOfPaid > 0) {
+          adjustStudentWalletBalance(sale.soldTo, sale.studentClass, retShareOfPaid, `Partial refund (${retQty} Pcs ${sale.category})`);
+        }
+        logStaffActivity('Partial Return', `${sale.soldTo}: ${retQty}/${totalPcs} Pcs ${sale.category} Size ${sale.size}, Refund ₹${retShareOfPaid}`);
+      }
+
       saveDataAndSync();
       closeRefundModal();
       renderContent();
-      alert(`Item wapas stock mein jud gaya hai aur ₹${sale.refundedAmount} refund record ho gaya hai!`);
+      alert(`${retQty} Pcs wapas stock mein jud gaya hai!`);
     }
 
     // ==================== FULL JSON BACKUP EXPORT & RESTORE (#4) ====================
@@ -3214,6 +3775,9 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         classCombosList,
         dailyExpensesList,
         supplierPaymentsList,
+        studentWallets,
+        stockAdjustmentsList,
+        lockedClosingDates,
         storeConfig,
         authUsers
       };
@@ -3221,7 +3785,23 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Garment_Full_Backup_${getTodayDate()}.json`;
+      a.download = `Garment_Full_Backup_${formatDateReadable(getTodayDate())}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function downloadTodayAutoSnapshot() {
+      saveDailyAutoSnapshot();
+      const snap = safeParseJSON(STORAGE_KEY_DAILY_SNAPSHOT, null);
+      if (!snap || !snap.payload) {
+        downloadFullBackupJSON();
+        return;
+      }
+      const blob = new Blob([JSON.stringify(snap.payload, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Garment_AutoSnapshot_${formatDateReadable(snap.date)}.json`;
       a.click();
       URL.revokeObjectURL(url);
     }
@@ -3504,23 +4084,30 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
       const discEl = document.getElementById('posDiscount');
       const paidEl = document.getElementById('posPaidAmount');
+      const nameVal = (document.getElementById('posSoldTo') ? document.getElementById('posSoldTo').value : '').trim();
+      const clsVal = document.getElementById('posStudentClass') ? document.getElementById('posStudentClass').value : '';
+      const useWalletEl = document.getElementById('posUseWalletCheck');
+      const walletAvail = (useWalletEl && useWalletEl.checked) ? getStudentWalletBalance(nameVal, clsVal) : 0;
 
       const rawDisc = Math.max(0, Number(discEl ? discEl.value : 0) || 0);
       const appliedDisc = Math.min(cartSubtotal, rawDisc);
       const netBill = Math.max(0, cartSubtotal - appliedDisc);
+      const walletApplied = Math.min(netBill, walletAvail);
+      const cashPayable = Math.max(0, netBill - walletApplied);
 
       if (paidEl && !window._posPaidManuallyEdited) {
-        paidEl.value = netBill;
+        paidEl.value = cashPayable;
       }
 
-      const paidVal = Math.min(netBill, Math.max(0, Number(paidEl ? paidEl.value : netBill) || 0));
-      const dueVal = Math.max(0, netBill - paidVal);
+      const cashPaidNow = Math.min(cashPayable, Math.max(0, Number(paidEl ? paidEl.value : cashPayable) || 0));
+      const totalSettled = walletApplied + cashPaidNow;
+      const dueVal = Math.max(0, netBill - totalSettled);
 
       const discSpan = document.getElementById('posSummaryDiscount');
       const netSpan = document.getElementById('posSummaryNet');
       const dueSpan = document.getElementById('posSummaryDue');
       if (discSpan) discSpan.textContent = '-' + formatINR(appliedDisc);
-      if (netSpan) netSpan.textContent = formatINR(netBill);
+      if (netSpan) netSpan.textContent = formatINR(netBill) + (walletApplied > 0 ? ` (Wallet: -${formatINR(walletApplied)})` : '');
       if (dueSpan) dueSpan.textContent = formatINR(dueVal);
     }
 
@@ -3546,8 +4133,21 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       }
 
       const date = document.getElementById('posDate').value;
+      if (isDateLocked(date) && !isAdminUser()) {
+        alert(`Date ${formatDateReadable(date)} ka Daily Closing lock ho chuka hai! Purani date mein bill banane ke liye Admin se unlock karwayein.`);
+        return;
+      }
+
       const soldTo = document.getElementById('posSoldTo').value.trim();
       const dupClass = document.getElementById('posStudentClass').value;
+
+      const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
+      const rawDisc = Math.max(0, Number(document.getElementById('posDiscount').value) || 0);
+      const totalDiscount = Math.min(cartSubtotal, rawDisc);
+
+      if (totalDiscount > 0 && !verifyStaffDiscountApproval(totalDiscount)) {
+        return;
+      }
 
       if (checkRecentDuplicateSale(soldTo, dupClass, date, posCartItems)) {
         if (!confirm(`Warning: "${soldTo}" ka bilkul aisa hi bill aaj ki date mein pehle hi ban chuka hai! Kya aap phir bhi naya bill banana chahte hain?`)) {
@@ -3564,11 +4164,31 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const inHandOf = document.getElementById('posInHand').value.trim();
       const soldBy = currentSession ? currentSession.displayName : 'Staff';
 
-      const cartSubtotal = posCartItems.reduce((s, item) => s + (item.pieces * item.rate), 0);
-      const rawDisc = Math.max(0, Number(document.getElementById('posDiscount').value) || 0);
-      const totalDiscount = Math.min(cartSubtotal, rawDisc);
       const netTotal = Math.max(0, cartSubtotal - totalDiscount);
-      const totalPaid = Math.min(netTotal, Math.max(0, Number(document.getElementById('posPaidAmount').value) || 0));
+      const useWalletEl = document.getElementById('posUseWalletCheck');
+      const walletAvail = (useWalletEl && useWalletEl.checked) ? getStudentWalletBalance(soldTo, studentClass) : 0;
+      const walletUsed = Math.min(netTotal, walletAvail);
+      const cashPayable = Math.max(0, netTotal - walletUsed);
+      const rawCashPaid = Math.max(0, Number(document.getElementById('posPaidAmount').value) || 0);
+
+      // If parent paid extra cash above netTotal, ask if extra should go to Student Advance Wallet!
+      let extraWalletDeposit = 0;
+      let cashPaidApplied = Math.min(cashPayable, rawCashPaid);
+      if (rawCashPaid > cashPayable) {
+        const diff = rawCashPaid - cashPayable;
+        if (confirm(`Parent ne ₹${rawCashPaid} diye hain jo bill se ₹${diff} zyada hain.\n\nKya aap ₹${diff} ko "${soldTo}" ke Advance Wallet (Jama Khata) mein save karna chahte hain?`)) {
+          extraWalletDeposit = diff;
+        }
+      }
+
+      if (walletUsed > 0) {
+        adjustStudentWalletBalance(soldTo, studentClass, -walletUsed, `Adjusted in bill on ${formatDateReadable(date)}`);
+      }
+      if (extraWalletDeposit > 0) {
+        adjustStudentWalletBalance(soldTo, studentClass, extraWalletDeposit, `Extra paid on ${formatDateReadable(date)}`);
+      }
+
+      const totalPaid = Math.min(netTotal, walletUsed + cashPaidApplied);
 
       const invoiceGroupId = 'GRP-' + Date.now();
       const createdIds = [];
@@ -3681,7 +4301,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         const itemsDesc = g.items.map(it => `${escapeHTML(it.category)} (Size ${escapeHTML(it.size)}) &times; ${it.pieces}`).join('<br>');
         return `
         <tr class="hover:bg-rose-50/40">
-          <td class="px-3 py-2.5 text-center whitespace-nowrap">${g.date}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${formatDateReadable(g.date)}</td>
           <td class="px-3 py-2.5 font-bold text-slate-900">
             ${escapeHTML(g.soldTo)}
             ${g.studentClass ? `<span class="ml-1.5 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded">${escapeHTML(g.studentClass)}</span>` : ''}
@@ -3711,16 +4331,57 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
       container.innerHTML = `
         <div class="space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-rose-50 border border-rose-200 rounded-xl p-4">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-rose-50 border border-rose-200 rounded-xl p-4">
             <div>
               <h2 class="text-lg font-bold text-rose-950">Pending Dues / Balance Recovery List (${groupedList.length} Bills)</h2>
               <p class="text-xs text-rose-800">Multi-item bills ek saath grouped hain — ek hi click mein poore bill ka due jama karein ya WhatsApp reminder bhejein.</p>
             </div>
-            <div class="text-right">
-              <span class="text-xs text-rose-700 uppercase font-bold">Total Market Due</span>
-              <p class="text-2xl font-extrabold text-rose-700">${formatINR(totalDueSum)}</p>
+            <div class="flex flex-wrap items-center gap-3">
+              <button type="button" onclick="openBulkDueReminderQueue()"
+                class="bg-green-600 hover:bg-green-500 text-white font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
+                Start Bulk WhatsApp Reminder Queue (${groupedList.length})
+              </button>
+              <div class="text-right">
+                <span class="text-xs text-rose-700 uppercase font-bold">Total Market Due</span>
+                <p class="text-2xl font-extrabold text-rose-700">${formatINR(totalDueSum)}</p>
+              </div>
             </div>
           </div>
+
+          ${isBulkReminderOpen && bulkReminderQueue.length > 0 ? (() => {
+            const cur = bulkReminderQueue[Math.min(bulkReminderIndex, bulkReminderQueue.length - 1)];
+            return `
+              <div class="bg-slate-900 text-white rounded-2xl p-4 sm:p-5 border-2 border-green-500 shadow-lg space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-700 pb-2.5">
+                  <div class="flex items-center gap-2">
+                    <span class="bg-green-500 text-slate-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">Bulk Queue</span>
+                    <span class="text-xs sm:text-sm font-bold">Student ${bulkReminderIndex + 1} of ${bulkReminderQueue.length}</span>
+                  </div>
+                  <button type="button" onclick="isBulkReminderOpen = false; renderContent();" class="text-xs text-slate-300 hover:text-white bg-white/10 px-2.5 py-1 rounded-lg font-bold">
+                    Close Queue &times;
+                  </button>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h4 class="text-base sm:text-lg font-extrabold text-white">
+                      ${escapeHTML(cur.soldTo)} ${cur.studentClass ? `<span class="text-xs bg-blue-500/30 text-blue-200 px-2 py-0.5 rounded ml-1">${escapeHTML(cur.studentClass)}</span>` : ''}
+                    </h4>
+                    <p class="text-xs text-slate-300 mt-0.5">Mobile: <strong>${escapeHTML(cur.customerPhone || 'Not Saved')}</strong> &bull; Due: <strong class="text-rose-400 text-sm">${formatINR(cur.totalDue)}</strong></p>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="sendCurrentBulkReminderAndNext()"
+                      class="bg-green-600 hover:bg-green-500 text-white font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow">
+                      Send WhatsApp &amp; Next &rarr;
+                    </button>
+                    <button type="button" onclick="skipBulkReminderNext()"
+                      class="bg-white/15 hover:bg-white/25 text-white font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl">
+                      Skip &rarr;
+                    </button>
+                  </div>
+                </div>
+              </div>
+            `;
+          })() : ''}
 
           <div class="overflow-x-auto border border-slate-200 rounded-lg">
             <table class="min-w-full divide-y divide-slate-200 text-sm">
@@ -3740,6 +4401,50 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           </div>
         </div>
       `;
+    }
+
+    function openBulkDueReminderQueue() {
+      const dueSales = salesList.filter(s => !s.isReturned && Number(s.dueAmount) > 0);
+      const groupedMap = new Map();
+      dueSales.forEach(s => {
+        const gKey = s.invoiceGroupId || s.id;
+        if (!groupedMap.has(gKey)) {
+          groupedMap.set(gKey, {
+            primaryId: s.id,
+            soldTo: s.soldTo,
+            studentClass: s.studentClass || '',
+            customerPhone: s.customerPhone || '',
+            totalDue: 0
+          });
+        }
+        groupedMap.get(gKey).totalDue += Number(s.dueAmount || 0);
+      });
+      bulkReminderQueue = Array.from(groupedMap.values());
+      bulkReminderIndex = 0;
+      isBulkReminderOpen = true;
+      renderContent();
+    }
+
+    function sendCurrentBulkReminderAndNext() {
+      if (!bulkReminderQueue.length) return;
+      const cur = bulkReminderQueue[bulkReminderIndex];
+      if (cur) sendDueReminderOnWhatsApp(cur.primaryId);
+      if (bulkReminderIndex + 1 < bulkReminderQueue.length) {
+        bulkReminderIndex++;
+      } else {
+        isBulkReminderOpen = false;
+        alert('Sabhi pending due reminders ki queue poori ho gayi hai!');
+      }
+      renderContent();
+    }
+
+    function skipBulkReminderNext() {
+      if (bulkReminderIndex + 1 < bulkReminderQueue.length) {
+        bulkReminderIndex++;
+      } else {
+        isBulkReminderOpen = false;
+      }
+      renderContent();
     }
 
     function getDueGroupSales(saleId) {
@@ -4014,17 +4719,33 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
       container.innerHTML = `
         <div class="space-y-6">
-          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+          ${(() => {
+            const isLocked = isDateLocked(closingFilterDate);
+            return `
+          <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 ${isLocked ? 'bg-emerald-50 border-emerald-300' : 'bg-slate-50 border-slate-200'} border rounded-xl p-4">
             <div>
-              <h2 class="text-lg font-bold text-slate-900">Daily Cash Closing, Expenses &amp; Drawer Tally</h2>
-              <p class="text-xs text-slate-600">Aaj ka total Cash/UPI collection, shop kharcha (expenses) aur exact Cash-in-Drawer hisaab dekhein.</p>
+              <div class="flex items-center gap-2 flex-wrap">
+                <h2 class="text-lg font-bold text-slate-900">Daily Cash Closing, Expenses &amp; Drawer Tally</h2>
+                ${isLocked
+                  ? `<span class="bg-emerald-600 text-white text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">VERIFIED &amp; LOCKED</span>`
+                  : `<span class="bg-amber-200 text-amber-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">OPEN SHIFT</span>`}
+              </div>
+              <p class="text-xs text-slate-600 mt-0.5">Date: <strong>${formatDateReadable(closingFilterDate)}</strong> &bull; Total Cash/UPI collection, shop kharcha aur exact Cash-in-Drawer hisaab.</p>
             </div>
-            <div class="flex items-center gap-2">
-              <label class="text-xs font-bold text-slate-700">Select Date:</label>
+            <div class="flex flex-wrap items-center gap-2">
+              <label class="text-xs font-bold text-slate-700">Date:</label>
               <input type="date" value="${closingFilterDate}" onchange="closingFilterDate = this.value; renderContent();"
                 class="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold focus:outline-none focus:border-blue-800" />
+              ${isAdminUser() ? `
+                <button type="button" onclick="toggleDayClosingLock('${closingFilterDate}')"
+                  class="${isLocked ? 'bg-slate-700 hover:bg-slate-800' : 'bg-emerald-700 hover:bg-emerald-800'} text-white font-bold text-xs px-3.5 py-2.5 rounded-lg shadow transition">
+                  ${isLocked ? 'Unlock Day' : 'Verify & Lock Day Closing'}
+                </button>
+              ` : ''}
             </div>
           </div>
+            `;
+          })()}
 
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <div class="bg-white border border-slate-200 rounded-xl p-3.5">
@@ -4185,6 +4906,21 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       if (!isAdminUser()) return;
       if (!confirm('Kya aap is expense entry ko delete karna chahte hain?')) return;
       dailyExpensesList = dailyExpensesList.filter(x => x.id !== expId);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function toggleDayClosingLock(dateStr) {
+      if (!isAdminUser()) return;
+      if (isDateLocked(dateStr)) {
+        if (!confirm(`Kya aap ${formatDateReadable(dateStr)} ka Day Closing unlock karna chahte hain?`)) return;
+        lockedClosingDates = lockedClosingDates.filter(d => d !== dateStr);
+        logStaffActivity('Day Closing Unlocked', `Unlocked closing for ${formatDateReadable(dateStr)}`);
+      } else {
+        if (!confirm(`Kya aap ${formatDateReadable(dateStr)} ka Cash Closing verify karke LOCK karna chahte hain? Lock hone ke baad staff is date mein purane bills nahi jod payega.`)) return;
+        lockedClosingDates.push(dateStr);
+        logStaffActivity('Day Closing Locked', `Verified & locked closing for ${formatDateReadable(dateStr)}`);
+      }
       saveDataAndSync();
       renderContent();
     }
@@ -4484,7 +5220,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         const isRet = Boolean(r.isReturned);
         return `
         <tr class="${isRet ? 'bg-rose-50/50 text-slate-400 line-through' : 'hover:bg-slate-50'}">
-          <td class="px-3 py-2.5 text-center whitespace-nowrap">${r.date}</td>
+          <td class="px-3 py-2.5 text-center whitespace-nowrap">${formatDateReadable(r.date)}</td>
           <td class="px-3 py-2.5 font-medium ${isRet ? 'text-slate-500' : 'text-slate-900'}">
             <button type="button" data-student-name="${escapeHTML(r.soldTo)}" data-student-class="${escapeHTML(r.studentClass || '')}" onclick="openStudentHistoryModal(this.dataset.studentName, this.dataset.studentClass)"
               class="text-left font-bold text-blue-950 hover:text-blue-700 hover:underline" title="Click to view full student history">
@@ -4816,6 +5552,35 @@ function doPost(e) {
             ` : ''}
           </div>
 
+          <!-- Admin Staff Discount Limit & Approval PIN Setup -->
+          <div class="bg-rose-50/70 border border-rose-200 rounded-xl p-5 space-y-3 shadow-sm">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h3 class="text-sm sm:text-base font-bold text-rose-950">Employee Discount Limit &amp; Admin Discount PIN</h3>
+                <p class="text-xs text-rose-800 mt-0.5">
+                  Employee bina PIN ke sirf is limit tak hi discount de payega. Usse zyada discount dene par neeche set kiya gaya <strong>Discount Approval PIN</strong> maangega.
+                </p>
+              </div>
+              <span class="text-[11px] font-bold bg-rose-200 text-rose-950 px-2.5 py-0.5 rounded-full self-start">SECURITY CONTROL</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white border border-rose-200 rounded-xl p-4">
+              <div>
+                <label class="block text-xs font-bold text-slate-800 mb-1">Max Free Discount Allowed for Employee (₹)</label>
+                <input type="number" min="0" value="${Number(storeConfig.staffMaxDiscount || 0)}"
+                  oninput="updateStoreConfigSilently('staffMaxDiscount', Math.max(0, Number(this.value) || 0))"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:outline-none focus:border-rose-700" />
+                <p class="text-[10px] text-slate-500 mt-1">0 rakhne par har discount par PIN maangega.</p>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-800 mb-1">Discount Approval PIN (For Staff Override)</label>
+                <input type="text" value="${escapeHTML(storeConfig.discountApprovalPin || '9999')}" placeholder="e.g. 9999"
+                  oninput="updateStoreConfigSilently('discountApprovalPin', this.value)"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-bold focus:outline-none focus:border-rose-700" />
+                <p class="text-[10px] text-slate-500 mt-1">Admin login par koi discount limit nahi hoti.</p>
+              </div>
+            </div>
+          </div>
+
           <!-- Admin Customizable WhatsApp Message Templates -->
           <div class="bg-emerald-50/70 border border-emerald-200 rounded-xl p-5 space-y-4 shadow-sm">
             <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -4892,10 +5657,14 @@ function doPost(e) {
                 Poora data (Stock, Sales, Dues, Pre-Orders, Users aur QR Code) ek JSON file mein download karke safe rakhein, ya purani backup file se restore karein.
               </p>
             </div>
-            <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+            <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center flex-wrap">
               <button type="button" onclick="downloadFullBackupJSON()"
                 class="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow transition">
                 Download Full Backup (.json)
+              </button>
+              <button type="button" onclick="downloadTodayAutoSnapshot()"
+                class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2.5 rounded-lg shadow transition">
+                Download Today's Auto-Snapshot
               </button>
               <label class="bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 font-bold text-xs px-4 py-2.5 rounded-lg shadow-xs cursor-pointer text-center">
                 <span>Restore from Backup (.json)</span>
@@ -5741,11 +6510,21 @@ function doPost(e) {
       e.preventDefault();
       if (isSubmittingSale) return;
       const date = document.getElementById('saleDate').value;
+      if (isDateLocked(date) && !isAdminUser()) {
+        alert(`Date ${formatDateReadable(date)} ka Daily Closing lock ho chuka hai! Purani date mein bill banane ke liye Admin se unlock karwayein.`);
+        return;
+      }
       const soldTo = document.getElementById('saleSoldTo').value.trim();
       const studentClass = document.getElementById('saleStudentClass').value;
       const customerPhone = document.getElementById('saleCustomerPhone').value.trim();
       const customerMeta = document.getElementById('saleCustomerMeta').value.trim();
       const size = String(document.getElementById('saleSize').value);
+      const pieces = Number(document.getElementById('salePieces').value);
+      const rawDiscount = Math.max(0, Number(document.getElementById('saleDiscount').value) || 0);
+
+      if (rawDiscount > 0 && !verifyStaffDiscountApproval(rawDiscount)) {
+        return;
+      }
 
       if (checkRecentDuplicateSale(soldTo, studentClass, date, [{ category, size }])) {
         if (!confirm(`Warning: "${soldTo}" ka ${category} (Size ${size}) ka bill aaj ki date mein pehle hi ban chuka hai! Kya aap phir bhi dobara entry karna chahte hain?`)) {
@@ -5755,8 +6534,6 @@ function doPost(e) {
 
       isSubmittingSale = true;
       setTimeout(() => { isSubmittingSale = false; }, 2000);
-      const pieces = Number(document.getElementById('salePieces').value);
-      const rawDiscount = Math.max(0, Number(document.getElementById('saleDiscount').value) || 0);
       const paymentMode = document.getElementById('salePaymentMode').value;
       const inHandOf = document.getElementById('saleInHand').value.trim();
       const soldBy = currentSession ? currentSession.displayName : 'Staff';
@@ -5865,7 +6642,7 @@ function doPost(e) {
       const rows = salesList.map(r => {
         const sub = Number(r.pieces) * Number(r.rate);
         return [
-          r.date,
+          formatDateReadable(r.date),
           `"${(r.soldTo || '').replace(/"/g, '""')}"`,
           `"${(r.studentClass || '').replace(/"/g, '""')}"`,
           `"${(r.customerPhone || '').replace(/"/g, '""')}"`,
