@@ -341,6 +341,10 @@
     const STORAGE_KEY_LOCKED_DAYS = 'garment_tracker_locked_days_v1';
     const STORAGE_KEY_PENDING_SYNC = 'garment_tracker_pending_sync_v1';
     const STORAGE_KEY_DAILY_SNAPSHOT = 'garment_tracker_daily_snapshot_v1';
+    const STORAGE_KEY_BOOKS_CATALOG = 'garment_tracker_books_catalog_v1';
+    const STORAGE_KEY_NOTEBOOK_CONFIG = 'garment_tracker_notebook_config_v1';
+    const STORAGE_KEY_BOOK_INWARDS = 'garment_tracker_book_inwards_v1';
+    const STORAGE_KEY_BOOK_SELLER_PAYMENTS = 'garment_tracker_book_seller_payments_v1';
 
     function safeParseJSON(key, fallback) {
       try {
@@ -363,10 +367,44 @@
     let closingFilterDate = new Date().toISOString().split('T')[0];
 
     // Search, Class & Date Filter state for Sales Register
+
+    const DEFAULT_NOTEBOOK_CONFIG = {
+      notebookRate: 40,
+      notebookBuyRate: 0,
+      diaryRate: 200,
+      diaryBuyRate: 0,
+      stock: {
+        Ruled: 250,
+        Square: 50,
+        FourLine: 100,
+        Plain: 50,
+        Diary: 100
+      },
+      classMatrix: {
+        "PRE-SCHOOL":    { Ruled: 0,  Square: 0, FourLine: 0, Plain: 0, Diary: 0 },
+        "PLAYGROUP":     { Ruled: 3,  Square: 3, FourLine: 3, Plain: 0, Diary: 1 },
+        "MONTESSORI I":  { Ruled: 6,  Square: 3, FourLine: 3, Plain: 0, Diary: 1 },
+        "MONTESSORI II": { Ruled: 7,  Square: 3, FourLine: 4, Plain: 0, Diary: 1 },
+        "HIFZ PLUS":     { Ruled: 12, Square: 2, FourLine: 9, Plain: 0, Diary: 1 },
+        "STD. I":        { Ruled: 12, Square: 2, FourLine: 9, Plain: 0, Diary: 1 },
+        "STD. II":       { Ruled: 12, Square: 2, FourLine: 9, Plain: 0, Diary: 1 },
+        "STD. III":      { Ruled: 12, Square: 2, FourLine: 9, Plain: 0, Diary: 1 },
+        "STD. IV":       { Ruled: 13, Square: 0, FourLine: 9, Plain: 2, Diary: 1 },
+        "STD. V":        { Ruled: 13, Square: 0, FourLine: 9, Plain: 2, Diary: 1 },
+        "STD. VI":       { Ruled: 25, Square: 0, FourLine: 0, Plain: 2, Diary: 1 },
+        "STD. VII":      { Ruled: 25, Square: 0, FourLine: 0, Plain: 2, Diary: 1 },
+        "STD. VIII":     { Ruled: 25, Square: 0, FourLine: 0, Plain: 2, Diary: 1 },
+        "STD. IX":       { Ruled: 24, Square: 0, FourLine: 0, Plain: 2, Diary: 1 },
+        "STD. X":        { Ruled: 24, Square: 0, FourLine: 0, Plain: 2, Diary: 1 }
+      }
+    };
+
     let salesFilterSearch = '';
     let salesFilterClass = '';
     let salesFilterFrom = '';
     let salesFilterTo = '';
+    let salesFilterItemGroup = ''; // '', 'BOOKS_STATIONERY', 'GARMENTS'
+    let activeBooksClassTab = 'STD. I';
 
     let googleScriptUrl = DEFAULT_GOOGLE_SCRIPT_URL || localStorage.getItem(STORAGE_KEY_SCRIPT_URL) || '';
     let stockConfig = safeParseJSON(STORAGE_KEY_STOCK, JSON.parse(JSON.stringify(INITIAL_STOCK)));
@@ -379,6 +417,10 @@
     let studentWallets = safeParseJSON(STORAGE_KEY_WALLETS, {});
     let stockAdjustmentsList = safeParseJSON(STORAGE_KEY_ADJUSTMENTS, []);
     let lockedClosingDates = safeParseJSON(STORAGE_KEY_LOCKED_DAYS, []);
+    let booksCatalogList = safeParseJSON(STORAGE_KEY_BOOKS_CATALOG, []);
+    let notebookConfig = safeParseJSON(STORAGE_KEY_NOTEBOOK_CONFIG, JSON.parse(JSON.stringify(DEFAULT_NOTEBOOK_CONFIG)));
+    let bookInwardsList = safeParseJSON(STORAGE_KEY_BOOK_INWARDS, []);
+    let bookSellerPaymentsList = safeParseJSON(STORAGE_KEY_BOOK_SELLER_PAYMENTS, []);
     let hasPendingOfflineSync = Boolean(localStorage.getItem(STORAGE_KEY_PENDING_SYNC));
     let bulkReminderQueue = [];
     let bulkReminderIndex = 0;
@@ -494,6 +536,18 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
     if (!studentWallets || typeof studentWallets !== 'object' || Array.isArray(studentWallets)) studentWallets = {};
     if (!Array.isArray(stockAdjustmentsList)) stockAdjustmentsList = [];
     if (!Array.isArray(lockedClosingDates)) lockedClosingDates = [];
+    if (!Array.isArray(booksCatalogList)) booksCatalogList = [];
+    if (!Array.isArray(bookInwardsList)) bookInwardsList = [];
+    if (!Array.isArray(bookSellerPaymentsList)) bookSellerPaymentsList = [];
+    if (!notebookConfig || typeof notebookConfig !== 'object') {
+      notebookConfig = JSON.parse(JSON.stringify(DEFAULT_NOTEBOOK_CONFIG));
+    }
+    if (!notebookConfig.stock) notebookConfig.stock = JSON.parse(JSON.stringify(DEFAULT_NOTEBOOK_CONFIG.stock));
+    if (!notebookConfig.classMatrix) notebookConfig.classMatrix = JSON.parse(JSON.stringify(DEFAULT_NOTEBOOK_CONFIG.classMatrix));
+    if (notebookConfig.notebookRate === undefined) notebookConfig.notebookRate = 40;
+    if (notebookConfig.notebookBuyRate === undefined) notebookConfig.notebookBuyRate = 0;
+    if (notebookConfig.diaryRate === undefined) notebookConfig.diaryRate = 200;
+    if (notebookConfig.diaryBuyRate === undefined) notebookConfig.diaryBuyRate = 0;
 
     Object.keys(stockConfig).forEach(cat => {
       stockConfig[cat] = (stockConfig[cat] || []).map(item => ({
@@ -585,7 +639,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'StockMatrix', 'StudentWallets', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'BooksStore', 'StockMatrix', 'StudentWallets', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -1015,6 +1069,10 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       localStorage.setItem(STORAGE_KEY_WALLETS, JSON.stringify(studentWallets));
       localStorage.setItem(STORAGE_KEY_ADJUSTMENTS, JSON.stringify(stockAdjustmentsList));
       localStorage.setItem(STORAGE_KEY_LOCKED_DAYS, JSON.stringify(lockedClosingDates));
+      localStorage.setItem(STORAGE_KEY_BOOKS_CATALOG, JSON.stringify(booksCatalogList));
+      localStorage.setItem(STORAGE_KEY_NOTEBOOK_CONFIG, JSON.stringify(notebookConfig));
+      localStorage.setItem(STORAGE_KEY_BOOK_INWARDS, JSON.stringify(bookInwardsList));
+      localStorage.setItem(STORAGE_KEY_BOOK_SELLER_PAYMENTS, JSON.stringify(bookSellerPaymentsList));
       localStorage.setItem(STORAGE_KEY_AUDIT, JSON.stringify(activityLogsList));
       localStorage.setItem(STORAGE_KEY_STORE, JSON.stringify(storeConfig));
       localStorage.setItem(STORAGE_KEY_AUTH_USERS, JSON.stringify(authUsers));
@@ -1051,6 +1109,10 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             studentWallets: studentWallets,
             stockAdjustmentsList: stockAdjustmentsList,
             lockedClosingDates: lockedClosingDates,
+            booksCatalogList: booksCatalogList,
+            notebookConfig: notebookConfig,
+            bookInwardsList: bookInwardsList,
+            bookSellerPaymentsList: bookSellerPaymentsList,
             activityLogsList: activityLogsList,
             storeConfig: storeConfig,
             authUsers: authUsers,
@@ -1176,6 +1238,34 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           if (Array.isArray(data.lockedClosingDates)) {
             if (JSON.stringify(data.lockedClosingDates) !== JSON.stringify(lockedClosingDates)) {
               lockedClosingDates = data.lockedClosingDates;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.booksCatalogList)) {
+            if (JSON.stringify(data.booksCatalogList) !== JSON.stringify(booksCatalogList)) {
+              booksCatalogList = data.booksCatalogList;
+              changed = true;
+            }
+          }
+
+          if (data.notebookConfig && typeof data.notebookConfig === 'object') {
+            if (JSON.stringify(data.notebookConfig) !== JSON.stringify(notebookConfig)) {
+              notebookConfig = data.notebookConfig;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.bookInwardsList)) {
+            if (JSON.stringify(data.bookInwardsList) !== JSON.stringify(bookInwardsList)) {
+              bookInwardsList = data.bookInwardsList;
+              changed = true;
+            }
+          }
+
+          if (Array.isArray(data.bookSellerPaymentsList)) {
+            if (JSON.stringify(data.bookSellerPaymentsList) !== JSON.stringify(bookSellerPaymentsList)) {
+              bookSellerPaymentsList = data.bookSellerPaymentsList;
               changed = true;
             }
           }
@@ -1575,6 +1665,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       switch (tabId) {
         case 'QuickPOS':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>`;
+        case 'BooksStore':
+          return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>`;
         case 'PreOrders':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
         case 'StockInward':
@@ -1609,7 +1701,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       const pendingPreOrdersCount = preOrdersList.filter(p => p.status !== 'Delivered').length;
 
       const allNavItems = [
-        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800', iconBg: 'bg-blue-100 text-blue-800' }
+        { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800', iconBg: 'bg-blue-100 text-blue-800' },
+        { id: 'BooksStore', label: 'Books, Notebooks & Diary Store', badge: 'NEW', badgeColor: 'bg-amber-100 text-amber-900', iconBg: 'bg-amber-100 text-amber-900' }
       ];
 
       Object.keys(stockConfig).forEach(cat => {
@@ -1747,6 +1840,11 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
       if (currentTab === 'QuickPOS') {
         renderQuickPOSTab(container);
+        return;
+      }
+
+      if (currentTab === 'BooksStore') {
+        renderBooksStoreTab(container);
         return;
       }
 
@@ -4219,7 +4317,63 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       }).join('');
     }
 
-    function getAvailableStockForSize(category, size) {
+    function isBookOrStationerySale(sale) {
+      if (!sale) return false;
+      if (sale.itemGroup === 'BOOKS_STATIONERY') return true;
+      const c = String(sale.category || '');
+      return c.startsWith('Book:') || c === 'Notebook' || c === 'School Diary';
+    }
+
+    function getBookLiveMetrics(bookId) {
+      const b = booksCatalogList.find(x => x.id === bookId);
+      if (!b) return { opening: 0, sold: 0, available: 0, buyPrice: 0, sellPrice: 0 };
+      const soldQty = salesList
+        .filter(s => !s.isReturned && (s.bookId === bookId || (s.category === `Book: ${b.bookName}` && s.size === b.studentClass)))
+        .reduce((sum, s) => sum + Number(s.pieces || 0), 0);
+      const opening = Number(b.opening || 0);
+      return {
+        opening,
+        sold: soldQty,
+        available: opening - soldQty,
+        buyPrice: Number(b.buyPrice || 0),
+        sellPrice: Number(b.sellPrice || 0)
+      };
+    }
+
+    function getNotebookOrDiaryLiveMetrics(nbType) {
+      // nbType: 'Ruled' | 'Square' | 'FourLine' | 'Plain' | 'Diary'
+      const opening = Number((notebookConfig.stock && notebookConfig.stock[nbType]) || 0);
+      const labelMap = { Ruled: 'Ruled', Square: 'Square', FourLine: '4-Line', Plain: 'Plain', Diary: 'Diary' };
+      const matchSize = labelMap[nbType] || nbType;
+      const soldQty = salesList
+        .filter(s => !s.isReturned && (
+          (nbType === 'Diary' && s.category === 'School Diary') ||
+          (nbType !== 'Diary' && s.category === 'Notebook' && String(s.size) === matchSize)
+        ))
+        .reduce((sum, s) => sum + Number(s.pieces || 0), 0);
+      const sellRate = nbType === 'Diary' ? Number(notebookConfig.diaryRate || 200) : Number(notebookConfig.notebookRate || 40);
+      const buyRate = nbType === 'Diary' ? Number(notebookConfig.diaryBuyRate || 0) : Number(notebookConfig.notebookBuyRate || 0);
+      return {
+        opening,
+        sold: soldQty,
+        available: opening - soldQty,
+        sellRate,
+        buyRate
+      };
+    }
+
+    function getAvailableStockForSize(category, size, bookId = '') {
+      if (bookId) {
+        return getBookLiveMetrics(bookId).available;
+      }
+      if (category === 'Notebook') {
+        const keyMap = { 'Ruled': 'Ruled', 'Square': 'Square', '4-Line': 'FourLine', 'Plain': 'Plain' };
+        const k = keyMap[size] || size;
+        return getNotebookOrDiaryLiveMetrics(k).available;
+      }
+      if (category === 'School Diary') {
+        return getNotebookOrDiaryLiveMetrics('Diary').available;
+      }
       const metrics = calculateCategoryMetrics(category);
       const row = metrics.rows.find(r => String(r.size).trim().toLowerCase() === String(size).trim().toLowerCase());
       return row ? Number(row.available) : 0;
@@ -4488,6 +4642,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           customerMeta,
           category: item.category,
           size: item.size,
+          bookId: item.bookId || '',
+          itemGroup: item.itemGroup || (isBookOrStationerySale(item) ? 'BOOKS_STATIONERY' : 'GARMENTS'),
           pieces: item.pieces,
           rate: item.rate,
           discount: lineDisc,
@@ -5138,8 +5294,24 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
           </div>
 
           <div>
-            <h3 class="text-base font-bold text-slate-800 mb-3">Sales Entries on ${formatDateReadable(closingFilterDate)} (${daySales.length})</h3>
-            ${renderSalesTable(daySales, true, false)}
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 class="text-base font-bold text-slate-800">Sales Entries on ${formatDateReadable(closingFilterDate)} (${daySales.length})</h3>
+              <div class="flex gap-1.5 text-xs">
+                <button type="button" onclick="salesFilterItemGroup=''; renderContent();"
+                  class="px-2.5 py-1 rounded-lg font-bold ${salesFilterItemGroup === '' ? 'bg-blue-900 text-white' : 'bg-slate-200 text-slate-700'}">All (${daySales.length})</button>
+                <button type="button" onclick="salesFilterItemGroup='BOOKS_STATIONERY'; renderContent();"
+                  class="px-2.5 py-1 rounded-lg font-bold ${salesFilterItemGroup === 'BOOKS_STATIONERY' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-900'}">Books &amp; Notebooks (${daySales.filter(s => isBookOrStationerySale(s)).length})</button>
+                <button type="button" onclick="salesFilterItemGroup='GARMENTS'; renderContent();"
+                  class="px-2.5 py-1 rounded-lg font-bold ${salesFilterItemGroup === 'GARMENTS' ? 'bg-indigo-700 text-white' : 'bg-indigo-100 text-indigo-900'}">Garments (${daySales.filter(s => !isBookOrStationerySale(s)).length})</button>
+              </div>
+            </div>
+            ${renderSalesTable(
+              salesFilterItemGroup === 'BOOKS_STATIONERY'
+                ? daySales.filter(s => isBookOrStationerySale(s))
+                : (salesFilterItemGroup === 'GARMENTS' ? daySales.filter(s => !isBookOrStationerySale(s)) : daySales),
+              true,
+              false
+            )}
           </div>
         </div>
       `;
@@ -5388,6 +5560,11 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       if (salesFilterClass) {
         filtered = filtered.filter(r => String(r.studentClass || '') === salesFilterClass);
       }
+      if (salesFilterItemGroup === 'BOOKS_STATIONERY') {
+        filtered = filtered.filter(r => isBookOrStationerySale(r));
+      } else if (salesFilterItemGroup === 'GARMENTS') {
+        filtered = filtered.filter(r => !isBookOrStationerySale(r));
+      }
       if (salesFilterFrom) {
         filtered = filtered.filter(r => r.date >= salesFilterFrom);
       }
@@ -5413,6 +5590,15 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
               class="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-blue-800" />
           </div>
           <div>
+            <label class="block text-[11px] font-bold text-amber-900 mb-1">Category Filter</label>
+            <select onchange="salesFilterItemGroup = this.value; renderContent();"
+              class="w-full bg-white border border-amber-300 rounded-lg px-2.5 py-1.5 text-xs font-bold focus:outline-none focus:border-amber-700">
+              <option value="" ${salesFilterItemGroup === '' ? 'selected' : ''}>All (Garments + Books)</option>
+              <option value="BOOKS_STATIONERY" ${salesFilterItemGroup === 'BOOKS_STATIONERY' ? 'selected' : ''}>Books, Notebooks &amp; Diary Only</option>
+              <option value="GARMENTS" ${salesFilterItemGroup === 'GARMENTS' ? 'selected' : ''}>Garments / Uniform Only</option>
+            </select>
+          </div>
+          <div>
             <label class="block text-[11px] font-bold text-blue-900 mb-1">Filter by Class</label>
             <select onchange="salesFilterClass = this.value; renderContent();"
               class="w-full bg-white border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs font-semibold focus:outline-none focus:border-blue-800">
@@ -5427,8 +5613,8 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
             <label class="block text-[11px] font-bold text-slate-600 mb-1">To Date</label>
             ${renderDDMMDateField('salesFilterToInput', salesFilterTo, 'text-xs py-1.5', false, 'salesFilterTo = val; renderContent();')}
           </div>
-          ${(salesFilterSearch || salesFilterClass || salesFilterFrom || salesFilterTo) ? `
-            <button type="button" onclick="salesFilterSearch=''; salesFilterClass=''; salesFilterFrom=''; salesFilterTo=''; renderContent();"
+          ${(salesFilterSearch || salesFilterClass || salesFilterItemGroup || salesFilterFrom || salesFilterTo) ? `
+            <button type="button" onclick="salesFilterSearch=''; salesFilterClass=''; salesFilterItemGroup=''; salesFilterFrom=''; salesFilterTo=''; renderContent();"
               class="bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold px-3 py-1.5 rounded-lg">
               Clear
             </button>
@@ -6953,6 +7139,937 @@ function doPost(e) {
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
+    }
+
+
+    // =========================================================================
+    // BOOKS, CLASS-WISE NOTEBOOK MATRIX, SCHOOL DIARY, SELLER KHATA & PROFIT ENGINE
+    // =========================================================================
+    function getClassNotebookSummary(cls) {
+      const m = (notebookConfig.classMatrix && notebookConfig.classMatrix[cls]) || { Ruled: 0, Square: 0, FourLine: 0, Plain: 0, Diary: 0 };
+      const ruled = Number(m.Ruled || 0);
+      const square = Number(m.Square || 0);
+      const fourLine = Number(m.FourLine || 0);
+      const plain = Number(m.Plain || 0);
+      const diary = Number(m.Diary || 0);
+      const totalCopies = ruled + square + fourLine + plain;
+      const nbRate = Number(notebookConfig.notebookRate || 40);
+      const diaryRate = Number(notebookConfig.diaryRate || 200);
+      const nbAmount = totalCopies * nbRate;
+      const diaryAmount = diary * diaryRate;
+      return { ruled, square, fourLine, plain, totalCopies, nbRate, nbAmount, diary, diaryRate, diaryAmount };
+    }
+
+    function renderBooksStoreTab(container) {
+      const adminCanEdit = isAdminUser();
+      const selectedClass = activeBooksClassTab || 'STD. I';
+      const classBooks = booksCatalogList.filter(b => b.studentClass === selectedClass);
+
+      const nbRate = Number(notebookConfig.notebookRate || 40);
+      const nbBuyRate = Number(notebookConfig.notebookBuyRate || 0);
+      const diaryRate = Number(notebookConfig.diaryRate || 200);
+      const diaryBuyRate = Number(notebookConfig.diaryBuyRate || 0);
+
+      const nbStats = {
+        Ruled: getNotebookOrDiaryLiveMetrics('Ruled'),
+        Square: getNotebookOrDiaryLiveMetrics('Square'),
+        FourLine: getNotebookOrDiaryLiveMetrics('FourLine'),
+        Plain: getNotebookOrDiaryLiveMetrics('Plain'),
+        Diary: getNotebookOrDiaryLiveMetrics('Diary')
+      };
+
+      // Class Books Combo calculation
+      let classBooksSellSum = 0;
+      let classBooksBuySum = 0;
+      let classBooksAvailCount = 0;
+      classBooks.forEach(b => {
+        const bm = getBookLiveMetrics(b.id);
+        classBooksSellSum += bm.sellPrice;
+        classBooksBuySum += bm.buyPrice;
+        if (bm.available > 0) classBooksAvailCount++;
+      });
+
+      const clsNb = getClassNotebookSummary(selectedClass);
+      const completeKitTotal = classBooksSellSum + clsNb.nbAmount + clsNb.diaryAmount;
+
+      // Overall Books + Notebooks + Diary Revenue & Profit Calculation
+      let totalAcademicRevenue = 0;
+      let totalAcademicCost = 0;
+      let costPendingItemsCount = 0;
+
+      // 1. Books revenue & cost
+      booksCatalogList.forEach(b => {
+        const bm = getBookLiveMetrics(b.id);
+        const bookSalesAmt = salesList
+          .filter(s => !s.isReturned && (s.bookId === b.id || (s.category === `Book: ${b.bookName}` && s.size === b.studentClass)))
+          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+        totalAcademicRevenue += bookSalesAmt;
+        totalAcademicCost += (bm.sold * bm.buyPrice);
+        if (bm.sold > 0 && bm.buyPrice <= 0) costPendingItemsCount++;
+      });
+
+      // 2. Notebooks & Diary revenue & cost
+      ['Ruled', 'Square', 'FourLine', 'Plain', 'Diary'].forEach(k => {
+        const st = nbStats[k];
+        const labelMap = { Ruled: 'Ruled', Square: 'Square', FourLine: '4-Line', Plain: 'Plain', Diary: 'Diary' };
+        const rev = salesList
+          .filter(s => !s.isReturned && (
+            (k === 'Diary' && s.category === 'School Diary') ||
+            (k !== 'Diary' && s.category === 'Notebook' && String(s.size) === labelMap[k])
+          ))
+          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+        totalAcademicRevenue += rev;
+        totalAcademicCost += (st.sold * st.buyRate);
+        if (st.sold > 0 && st.buyRate <= 0) costPendingItemsCount++;
+      });
+
+      const netAcademicProfit = totalAcademicRevenue - totalAcademicCost;
+
+      // Seller Khata aggregation
+      const sellerMap = {};
+      bookInwardsList.forEach(inp => {
+        const seller = (inp.sellerName || 'General Book Seller').trim();
+        if (!sellerMap[seller]) {
+          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0 };
+        }
+        sellerMap[seller].totalQty += Number(inp.pieces || 0);
+        sellerMap[seller].totalBill += Number(inp.billAmount || 0);
+        sellerMap[seller].totalPaid += Number(inp.paidAmount || 0);
+      });
+      bookSellerPaymentsList.forEach(sp => {
+        const seller = (sp.sellerName || 'General Book Seller').trim();
+        if (!sellerMap[seller]) {
+          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0 };
+        }
+        sellerMap[seller].totalPaid += Number(sp.amount || 0);
+      });
+      const sellerList = Object.values(sellerMap);
+      const sellerDatalistOpts = sellerList.map(s => `<option value="${escapeHTML(s.seller)}">`).join('');
+
+      // Class Pills Bar
+      const classTabsHTML = SCHOOL_CLASSES.map(cls => {
+        const cnt = booksCatalogList.filter(b => b.studentClass === cls).length;
+        const isAct = cls === selectedClass;
+        return `
+          <button type="button" onclick="activeBooksClassTab = '${escapeHTML(cls)}'; renderContent();"
+            class="px-3 py-2 rounded-xl text-xs font-extrabold transition border ${isAct ? 'bg-blue-900 text-white border-blue-900 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}">
+            ${escapeHTML(cls)} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${isAct ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'}">${cnt}</span>
+          </button>
+        `;
+      }).join('');
+
+      // Books Table Rows for Selected Class
+      const bookRowsHTML = classBooks.length ? classBooks.map((b, idx) => {
+        const bm = getBookLiveMetrics(b.id);
+        const isLow = bm.opening > 0 && bm.available <= LOW_STOCK_THRESHOLD;
+        return `
+          <tr class="${isLow ? 'bg-rose-50/70' : 'hover:bg-slate-50'} border-b border-slate-200">
+            <td class="px-3 py-2.5 text-center text-slate-500">${idx + 1}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-900">
+              ${escapeHTML(b.bookName)}
+              ${b.subjectNote ? `<div class="text-[11px] font-normal text-slate-500">${escapeHTML(b.subjectNote)}</div>` : ''}
+            </td>
+            <td class="px-3 py-2.5 text-slate-700 font-medium">${escapeHTML(b.publisher || '-')}</td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `
+                <input type="number" min="0" value="${bm.opening}"
+                  onchange="updateBookCatalogField('${b.id}', 'opening', this.value)"
+                  class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-xs font-bold" />
+              ` : `<span>${bm.opening}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center font-semibold text-amber-700">${bm.sold}</td>
+            <td class="px-3 py-2.5 text-center font-extrabold ${bm.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">${bm.available}</td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `
+                <input type="number" min="0" value="${bm.buyPrice}" placeholder="0"
+                  onchange="updateBookCatalogField('${b.id}', 'buyPrice', this.value)"
+                  class="w-20 text-center border border-amber-300 bg-amber-50/40 rounded px-1.5 py-1 text-xs font-semibold"
+                  title="Buying Price (Baad mein bhi dal sakte hain)" />
+              ` : `<span class="text-xs text-slate-500">${bm.buyPrice > 0 ? formatINR(bm.buyPrice) : 'Pending'}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `
+                <input type="number" min="0" value="${bm.sellPrice}"
+                  onchange="updateBookCatalogField('${b.id}', 'sellPrice', this.value)"
+                  class="w-20 text-center border border-blue-300 rounded px-1.5 py-1 text-xs font-bold text-blue-950"
+                  title="Selling Price" />
+              ` : `<span class="font-bold text-blue-950">${formatINR(bm.sellPrice)}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1">
+              <button type="button" onclick="addSingleBookToCart('${b.id}')"
+                class="bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-xs">
+                + Bill
+              </button>
+              ${adminCanEdit ? `
+                <button type="button" onclick="deleteBookFromCatalog('${b.id}')"
+                  class="text-xs text-rose-600 hover:text-rose-800 font-bold px-1">
+                  &times;
+                </button>
+              ` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('') : `
+        <tr>
+          <td colspan="9" class="py-8 text-center text-xs text-slate-500">
+            <strong>${escapeHTML(selectedClass)}</strong> mein abhi koi book add nahi hai. Neeche <strong>+ Add New Book</strong> form se is class ki books add karein.
+          </td>
+        </tr>
+      `;
+
+      // Notebook Matrix Rows (Exact table from user's image!)
+      let sumRuled = 0, sumSquare = 0, sumFourLine = 0, sumPlain = 0, sumAllCopies = 0;
+      const matrixRowsHTML = SCHOOL_CLASSES.map(cls => {
+        const c = getClassNotebookSummary(cls);
+        sumRuled += c.ruled;
+        sumSquare += c.square;
+        sumFourLine += c.fourLine;
+        sumPlain += c.plain;
+        sumAllCopies += c.totalCopies;
+        const isCurrent = cls === selectedClass;
+        return `
+          <tr class="${isCurrent ? 'bg-blue-50/80 font-semibold' : 'hover:bg-slate-50'} border-b border-slate-200">
+            <td class="px-3 py-2 font-bold text-slate-900 whitespace-nowrap">${escapeHTML(cls)}</td>
+            <td class="px-2 py-2 text-center">
+              ${adminCanEdit ? `<input type="number" min="0" value="${c.ruled}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Ruled', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.ruled || '-')}
+            </td>
+            <td class="px-2 py-2 text-center">
+              ${adminCanEdit ? `<input type="number" min="0" value="${c.square}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Square', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.square || '-')}
+            </td>
+            <td class="px-2 py-2 text-center">
+              ${adminCanEdit ? `<input type="number" min="0" value="${c.fourLine}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'FourLine', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.fourLine || '-')}
+            </td>
+            <td class="px-2 py-2 text-center">
+              ${adminCanEdit ? `<input type="number" min="0" value="${c.plain}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Plain', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.plain || '-')}
+            </td>
+            <td class="px-3 py-2 text-center font-extrabold text-blue-950">${c.totalCopies}</td>
+            <td class="px-3 py-2 text-center text-slate-600">${formatINR(c.nbRate)}</td>
+            <td class="px-3 py-2 text-right font-bold text-emerald-700">${formatINR(c.nbAmount)}</td>
+            <td class="px-3 py-2 text-center font-semibold text-purple-800">${c.diary > 0 ? `${c.diary} (${formatINR(c.diaryAmount)})` : '-'}</td>
+            <td class="px-3 py-2 text-center">
+              ${c.totalCopies > 0 ? `
+                <button type="button" onclick="addClassNotebookSetToCart('${escapeHTML(cls)}', false)"
+                  class="bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg">
+                  + Bill Set
+                </button>
+              ` : `<span class="text-[11px] text-slate-400">N/A</span>`}
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <!-- TOP: Academic Revenue & Profit Summary Strip -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div class="bg-blue-950 text-white rounded-xl p-4 shadow-xs">
+              <p class="text-[11px] font-bold uppercase text-blue-200">Books, Notebooks &amp; Diary Sales</p>
+              <p class="text-2xl font-extrabold mt-1">${formatINR(totalAcademicRevenue)}</p>
+              <p class="text-[11px] text-blue-300 mt-0.5">Total Academic Billing</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-xl p-4">
+              <p class="text-[11px] font-bold uppercase text-slate-500">Total Buying Cost (Sold Items)</p>
+              <p class="text-2xl font-extrabold text-slate-900 mt-1">${formatINR(totalAcademicCost)}</p>
+              <p class="text-[11px] ${costPendingItemsCount > 0 ? 'text-amber-700 font-semibold' : 'text-slate-500'} mt-0.5">
+                ${costPendingItemsCount > 0 ? `${costPendingItemsCount} item(s) ka buying price pending hai` : 'All sold item costs entered'}
+              </p>
+            </div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+              <p class="text-[11px] font-bold uppercase text-emerald-800">Net Profit (Books + Copy + Diary)</p>
+              <p class="text-2xl font-extrabold text-emerald-700 mt-1">${formatINR(netAcademicProfit)}</p>
+              <p class="text-[11px] text-emerald-800 mt-0.5">Baad mein buying price dalne par auto-update hoga</p>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
+              <p class="text-[11px] font-bold uppercase text-amber-900">Active Cart Status</p>
+              <p class="text-2xl font-extrabold text-amber-950 mt-1">${posCartItems.length} <span class="text-xs font-semibold">Line(s)</span></p>
+              <button type="button" onclick="switchTab('QuickPOS')" class="text-xs font-bold text-blue-900 underline mt-0.5">
+                Go to POS Checkout &amp; Print Bill &rarr;
+              </button>
+            </div>
+          </div>
+
+          <!-- SECTION 1: CLASS-WISE BOOKS CATALOG & 1-CLICK COMBO SET -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 class="text-lg font-extrabold text-slate-900">1. Class-Wise Books Store &amp; Combo Set</h2>
+                <p class="text-xs text-slate-600">Class chunein, books dekhein ya neeche 1-Click button se poora class set bill cart mein dalein.</p>
+              </div>
+              <span class="text-xs font-bold bg-blue-100 text-blue-950 px-3 py-1 rounded-full self-start">
+                Selected Class: ${escapeHTML(selectedClass)}
+              </span>
+            </div>
+
+            <!-- Class Selector Pills -->
+            <div class="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              ${classTabsHTML}
+            </div>
+
+            <!-- Books Table for Active Class -->
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="min-w-full text-sm bg-white">
+                <thead class="bg-slate-800 text-white text-xs">
+                  <tr>
+                    <th class="px-3 py-2.5 text-center">#</th>
+                    <th class="px-3 py-2.5 text-left">Book Name</th>
+                    <th class="px-3 py-2.5 text-left">Publisher Name</th>
+                    <th class="px-3 py-2.5 text-center">Inward</th>
+                    <th class="px-3 py-2.5 text-center">Sold</th>
+                    <th class="px-3 py-2.5 text-center">Avail</th>
+                    <th class="px-3 py-2.5 text-center">Buying Price (₹)</th>
+                    <th class="px-3 py-2.5 text-center">Selling Price (₹)</th>
+                    <th class="px-3 py-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>${bookRowsHTML}</tbody>
+                <tfoot class="bg-slate-100 font-bold text-slate-900 text-xs">
+                  <tr>
+                    <td colspan="6" class="px-3 py-2.5 text-right">${escapeHTML(selectedClass)} Full Books Set Total (${classBooks.length} Books):</td>
+                    <td class="px-3 py-2.5 text-center text-amber-800">${formatINR(classBooksBuySum)}</td>
+                    <td class="px-3 py-2.5 text-center text-blue-950 text-sm">${formatINR(classBooksSellSum)}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <!-- 1-CLICK COMBO BUTTONS BELOW CLASS BOOKS -->
+            <div class="bg-gradient-to-r from-blue-950 to-indigo-900 text-white rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 shadow-md">
+              <div>
+                <span class="bg-amber-400 text-slate-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">1-Click Class Combo Billing</span>
+                <h3 class="text-base sm:text-lg font-extrabold mt-1">${escapeHTML(selectedClass)} — Full Academic Set</h3>
+                <p class="text-xs text-blue-200 mt-0.5">
+                  Books (${classBooks.length}): <strong>${formatINR(classBooksSellSum)}</strong> &bull;
+                  Notebooks (${clsNb.totalCopies} Copies): <strong>${formatINR(clsNb.nbAmount)}</strong> &bull;
+                  School Diary (${clsNb.diary}): <strong>${formatINR(clsNb.diaryAmount)}</strong>
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2.5">
+                <button type="button" onclick="addFullClassBooksComboToCart('${escapeHTML(selectedClass)}')"
+                  class="bg-white text-blue-950 hover:bg-blue-50 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
+                  + Add ${escapeHTML(selectedClass)} Books Combo (${formatINR(classBooksSellSum)})
+                </button>
+                ${clsNb.totalCopies > 0 ? `
+                <button type="button" onclick="addClassNotebookSetToCart('${escapeHTML(selectedClass)}', true)"
+                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
+                  + Notebooks (${clsNb.totalCopies}) &amp; Diary (${formatINR(clsNb.nbAmount + clsNb.diaryAmount)})
+                </button>
+                ` : ''}
+                <button type="button" onclick="addCompleteClassKitToCart('${escapeHTML(selectedClass)}')"
+                  class="bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
+                  + Full Kit (Books+Copy+Diary: ${formatINR(completeKitTotal)})
+                </button>
+              </div>
+            </div>
+
+            <!-- Admin: Add New Book to Selected Class -->
+            ${adminCanEdit ? `
+            <form onsubmit="handleAddBookToCatalog(event)" class="bg-slate-50 border border-slate-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 items-end">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Class *</label>
+                <select id="newBookClass" class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-bold">
+                  ${SCHOOL_CLASSES.map(c => `<option value="${escapeHTML(c)}" ${c === selectedClass ? 'selected' : ''}>${escapeHTML(c)}</option>`).join('')}
+                </select>
+              </div>
+              <div class="lg:col-span-2">
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Book Name *</label>
+                <input type="text" id="newBookName" placeholder="e.g. English Reader / Maths Magic" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-semibold" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Publisher Name</label>
+                <input type="text" id="newBookPublisher" placeholder="e.g. Oxford / NCERT"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Stock &amp; Sell Price (₹)</label>
+                <div class="flex gap-1.5">
+                  <input type="number" id="newBookStock" min="0" value="20" placeholder="Qty" title="Initial Stock"
+                    class="w-1/2 bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold" />
+                  <input type="number" id="newBookSellPrice" min="0" value="0" placeholder="Sell ₹" title="Selling Price (Baad mein bhi dal sakte hain)"
+                    class="w-1/2 bg-white border border-blue-300 rounded-lg px-2 py-2 text-xs font-bold" />
+                </div>
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow">
+                  + Add Book
+                </button>
+              </div>
+            </form>
+            ` : ''}
+          </div>
+
+          <!-- SECTION 2: NOTEBOOKS & SCHOOL DIARY STOCK, LOOSE BILLING & CLASS MATRIX -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-5 shadow-xs">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div>
+                <h2 class="text-lg font-extrabold text-slate-900">2. Notebooks &amp; School Diary (Loose Billing + Class Matrix)</h2>
+                <p class="text-xs text-slate-600">Mid-session mein 3-4 loose copies bechne ke liye ya future rate (₹40 / ₹200) change karne ke liye</p>
+              </div>
+            </div>
+
+            <!-- Live Stock & Rate Cards for 4 Notebook Types + School Diary -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              ${[
+                { key: 'Ruled', label: 'Ruled Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
+                { key: 'Square', label: 'Square Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
+                { key: 'FourLine', label: '4-Line Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
+                { key: 'Plain', label: 'Plain Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
+                { key: 'Diary', label: 'School Diary', rate: diaryRate, buy: diaryBuyRate, isDiary: true }
+              ].map(item => {
+                const st = nbStats[item.key];
+                return `
+                  <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-1.5">
+                    <div class="flex items-center justify-between">
+                      <span class="text-xs font-extrabold text-slate-900">${item.label}</span>
+                      <span class="text-xs font-bold text-blue-900">${formatINR(item.rate)}</span>
+                    </div>
+                    <div class="flex justify-between text-[11px] text-slate-600">
+                      <span>Sold: <strong>${st.sold}</strong></span>
+                      <span class="${st.available <= 5 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}">Avail: ${st.available}</span>
+                    </div>
+                    ${adminCanEdit ? `
+                      <div class="pt-1 border-t border-slate-200 flex items-center justify-between gap-1 text-[10px]">
+                        <span class="text-slate-500">Total Stock:</span>
+                        <input type="number" min="0" value="${st.opening}"
+                          onchange="updateNotebookStockCount('${item.key}', this.value)"
+                          class="w-16 text-center bg-white border border-slate-300 rounded py-0.5 font-bold" />
+                      </div>
+                    ` : ''}
+                  </div>
+                `;
+              }).join('')}
+            </div>
+
+            <!-- Admin Rate Settings for Notebooks & Diary -->
+            ${adminCanEdit ? `
+            <div class="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-[11px] font-bold text-slate-800 mb-1">Notebook Selling Rate (₹)</label>
+                <input type="number" min="0" value="${nbRate}"
+                  onchange="updateNotebookGlobalRates('notebookRate', this.value)"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-extrabold text-blue-950" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-800 mb-1">Notebook Buying Cost (₹)</label>
+                <input type="number" min="0" value="${nbBuyRate}"
+                  onchange="updateNotebookGlobalRates('notebookBuyRate', this.value)"
+                  class="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-800 mb-1">School Diary Selling Rate (₹)</label>
+                <input type="number" min="0" value="${diaryRate}"
+                  onchange="updateNotebookGlobalRates('diaryRate', this.value)"
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-extrabold text-blue-950" />
+              </div>
+              <div>
+                <label class="block text-[11px] font-bold text-slate-800 mb-1">School Diary Buying Cost (₹)</label>
+                <input type="number" min="0" value="${diaryBuyRate}"
+                  onchange="updateNotebookGlobalRates('diaryBuyRate', this.value)"
+                  class="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-sm font-bold" />
+              </div>
+            </div>
+            ` : ''}
+
+            <!-- Mid-Session Loose / Extra Notebook & Diary Billing Box -->
+            <div class="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4">
+              <h3 class="text-sm font-extrabold text-emerald-950 mb-2">Loose / Extra Notebook &amp; School Diary Billing (2-3 Mahine Baad Extra Copies ke Liye)</h3>
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Select Item *</label>
+                  <select id="looseNbType" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold">
+                    <option value="Ruled">Ruled Notebook (${formatINR(nbRate)})</option>
+                    <option value="Square">Square Notebook (${formatINR(nbRate)})</option>
+                    <option value="4-Line">4-Line Notebook (${formatINR(nbRate)})</option>
+                    <option value="Plain">Plain Notebook (${formatINR(nbRate)})</option>
+                    <option value="Diary">School Diary (${formatINR(diaryRate)})</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity (Copies / Pcs) *</label>
+                  <input type="number" id="looseNbQty" min="1" value="3"
+                    class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+                </div>
+                <div class="sm:col-span-2 flex gap-2">
+                  <button type="button" onclick="addLooseNotebookOrDiaryToCart(false)"
+                    class="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
+                    + Add to Bill Cart
+                  </button>
+                  <button type="button" onclick="addLooseNotebookOrDiaryToCart(true)"
+                    class="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
+                    + Add &amp; Open Checkout
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Class-Wise Notebook Matrix Table (Exact structure from user's Excel image) -->
+            <div>
+              <h3 class="text-sm font-extrabold text-slate-900 mb-2">Class-Wise Notebook Combo Matrix &amp; School Diary Chart</h3>
+              <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="min-w-full text-xs sm:text-sm bg-white">
+                  <thead class="bg-slate-900 text-white text-xs">
+                    <tr>
+                      <th class="px-3 py-2.5 text-left">Class</th>
+                      <th class="px-2 py-2.5 text-center">Ruled</th>
+                      <th class="px-2 py-2.5 text-center">Square</th>
+                      <th class="px-2 py-2.5 text-center">4-Line</th>
+                      <th class="px-2 py-2.5 text-center">Plain</th>
+                      <th class="px-3 py-2.5 text-center">Total Copies</th>
+                      <th class="px-3 py-2.5 text-center">Rate</th>
+                      <th class="px-3 py-2.5 text-right">Notebook Amt</th>
+                      <th class="px-3 py-2.5 text-center">School Diary</th>
+                      <th class="px-3 py-2.5 text-center">Quick Bill</th>
+                    </tr>
+                  </thead>
+                  <tbody>${matrixRowsHTML}</tbody>
+                  <tfoot class="bg-slate-200 font-extrabold text-slate-900 text-xs">
+                    <tr>
+                      <td class="px-3 py-2.5">Total Across Classes</td>
+                      <td class="px-2 py-2.5 text-center">${sumRuled}</td>
+                      <td class="px-2 py-2.5 text-center">${sumSquare}</td>
+                      <td class="px-2 py-2.5 text-center">${sumFourLine}</td>
+                      <td class="px-2 py-2.5 text-center">${sumPlain}</td>
+                      <td class="px-3 py-2.5 text-center text-blue-950">${sumAllCopies}</td>
+                      <td class="px-3 py-2.5 text-center">${formatINR(nbRate)}</td>
+                      <td class="px-3 py-2.5 text-right">${formatINR(sumAllCopies * nbRate)}</td>
+                      <td colspan="2"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- SECTION 3: BOOKS & NOTEBOOKS STOCK INWARD + SELLER KHATA -->
+          <div class="bg-blue-50/60 border border-blue-200 rounded-2xl p-4 sm:p-5 space-y-5">
+            <div>
+              <h2 class="text-lg font-extrabold text-blue-950">3. Books / Notebooks Stock Inward &amp; Seller Khata</h2>
+              <p class="text-xs text-blue-800">Kis seller se kitne ke books/notebooks liye gaye, kitna payment hua aur kitna due hai — sab track karein (Buying price baad mein bhi dal sakte hain)</p>
+            </div>
+
+            <form onsubmit="handleAddBookOrNotebookInward(event)" class="bg-white border border-blue-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
+                ${renderDDMMDateField('bkInwardDate', getTodayDate(), '', true)}
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Seller / Book Depot Name *</label>
+                <input type="text" id="bkInwardSeller" list="bookSellerDatalist" placeholder="e.g. Gyan Ganga Book Depot" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold" />
+                <datalist id="bookSellerDatalist">${sellerDatalistOpts}</datalist>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Select Book / Notebook / Diary *</label>
+                <select id="bkInwardTarget" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold">
+                  <optgroup label="Notebooks &amp; School Diary">
+                    <option value="NB:Ruled">Notebook — Ruled</option>
+                    <option value="NB:Square">Notebook — Square</option>
+                    <option value="NB:FourLine">Notebook — 4-Line</option>
+                    <option value="NB:Plain">Notebook — Plain</option>
+                    <option value="NB:Diary">School Diary</option>
+                  </optgroup>
+                  <optgroup label="Class-Wise Books">
+                    ${booksCatalogList.map(b => `<option value="BK:${b.id}">${escapeHTML(b.studentClass)} — ${escapeHTML(b.bookName)} (${escapeHTML(b.publisher || 'No Pub')})</option>`).join('')}
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity Received *</label>
+                <input type="number" id="bkInwardQty" min="1" value="25" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-amber-800 mb-1">Per Piece Buying Rate (₹) (Optional)</label>
+                <input type="number" id="bkInwardUnitBuy" min="0" value="0" oninput="const q=Number(document.getElementById('bkInwardQty').value||0); const r=Number(this.value||0); if(r>0){document.getElementById('bkInwardBillAmt').value = q*r;}"
+                  class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Total Seller Bill Amount (₹)</label>
+                <input type="number" id="bkInwardBillAmt" min="0" value="0"
+                  class="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Paid to Seller Now (₹)</label>
+                <input type="number" id="bkInwardPaidAmt" min="0" value="0"
+                  class="w-full border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow">
+                  + Add Stock &amp; Seller Khata
+                </button>
+              </div>
+            </form>
+
+            <!-- Seller Summary Ledger -->
+            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white">
+              <div class="bg-blue-950 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider">
+                Book &amp; Notebook Sellers Ledger (Total Kis Seller Se Kitne Ke Books Liye Gaye)
+              </div>
+              <table class="min-w-full text-xs sm:text-sm">
+                <thead class="bg-slate-100 text-slate-800 text-xs">
+                  <tr>
+                    <th class="px-3 py-2 text-center">#</th>
+                    <th class="px-3 py-2 text-left">Seller / Book Distributor</th>
+                    <th class="px-3 py-2 text-center">Total Pcs Supplied</th>
+                    <th class="px-3 py-2 text-right">Total Purchase (₹)</th>
+                    <th class="px-3 py-2 text-right">Total Paid (₹)</th>
+                    <th class="px-3 py-2 text-right">Balance Due (₹)</th>
+                    <th class="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${sellerList.length ? sellerList.map((sl, i) => {
+                    const due = Math.max(0, sl.totalBill - sl.totalPaid);
+                    return `
+                      <tr>
+                        <td class="px-3 py-2 text-center text-slate-500">${i + 1}</td>
+                        <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(sl.seller)}</td>
+                        <td class="px-3 py-2 text-center font-semibold">${sl.totalQty} Pcs</td>
+                        <td class="px-3 py-2 text-right font-bold text-blue-950">${formatINR(sl.totalBill)}</td>
+                        <td class="px-3 py-2 text-right font-semibold text-emerald-700">${formatINR(sl.totalPaid)}</td>
+                        <td class="px-3 py-2 text-right font-extrabold ${due > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatINR(due)}</td>
+                        <td class="px-3 py-2 text-center">
+                          <button type="button" onclick="recordBookSellerPaymentPrompt('${escapeHTML(sl.seller)}', ${due})"
+                            class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg">
+                            + Pay Seller
+                          </button>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('') : `<tr><td colspan="7" class="py-5 text-center text-xs text-slate-500">Abhi tak kisi seller se book inward entry nahi hui hai.</td></tr>`}
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Inward History Log (Editable Bill Amount later!) -->
+            ${bookInwardsList.length > 0 ? `
+            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white">
+              <div class="bg-slate-800 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider">
+                Books &amp; Notebooks Purchase Inward Log (${bookInwardsList.length} Entries — Bill Amount Baad Mein Bhi Edit Kar Sakte Hain)
+              </div>
+              <table class="min-w-full text-xs">
+                <thead class="bg-slate-100 text-slate-800">
+                  <tr>
+                    <th class="px-3 py-2 text-center">Date</th>
+                    <th class="px-3 py-2 text-left">Seller</th>
+                    <th class="px-3 py-2 text-left">Item</th>
+                    <th class="px-3 py-2 text-center">Qty</th>
+                    <th class="px-3 py-2 text-center">Seller Bill Amt (₹)</th>
+                    <th class="px-3 py-2 text-center">Paid (₹)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">
+                  ${bookInwardsList.slice().reverse().map(inp => `
+                    <tr>
+                      <td class="px-3 py-2 text-center whitespace-nowrap">${formatDateReadable(inp.date)}</td>
+                      <td class="px-3 py-2 font-bold">${escapeHTML(inp.sellerName)}</td>
+                      <td class="px-3 py-2">${escapeHTML(inp.itemLabel)}</td>
+                      <td class="px-3 py-2 text-center font-bold text-emerald-700">+${inp.pieces}</td>
+                      <td class="px-3 py-2 text-center">
+                        ${adminCanEdit ? `<input type="number" min="0" value="${Number(inp.billAmount || 0)}" onchange="updateBookInwardAmount('${inp.id}', 'billAmount', this.value)" class="w-24 text-center border border-slate-300 rounded py-0.5 font-bold" />` : formatINR(inp.billAmount)}
+                      </td>
+                      <td class="px-3 py-2 text-center">
+                        ${adminCanEdit ? `<input type="number" min="0" value="${Number(inp.paidAmount || 0)}" onchange="updateBookInwardAmount('${inp.id}', 'paidAmount', this.value)" class="w-24 text-center border border-emerald-300 rounded py-0.5 font-bold text-emerald-700" />` : formatINR(inp.paidAmount)}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAddBookToCatalog(e) {
+      e.preventDefault();
+      if (!isAdminUser()) return;
+      const studentClass = document.getElementById('newBookClass').value;
+      const bookName = document.getElementById('newBookName').value.trim();
+      const publisher = document.getElementById('newBookPublisher').value.trim();
+      const opening = Math.max(0, Number(document.getElementById('newBookStock').value) || 0);
+      const sellPrice = Math.max(0, Number(document.getElementById('newBookSellPrice').value) || 0);
+
+      if (!bookName) return;
+
+      booksCatalogList.push({
+        id: 'BK-' + Date.now(),
+        studentClass,
+        bookName,
+        publisher,
+        opening,
+        buyPrice: 0,
+        sellPrice
+      });
+
+      activeBooksClassTab = studentClass;
+      logStaffActivity('Book Added', `${studentClass}: ${bookName} (${publisher || 'No Pub'})`);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateBookCatalogField(bookId, field, rawVal) {
+      if (!isAdminUser()) return;
+      const b = booksCatalogList.find(x => x.id === bookId);
+      if (!b) return;
+      b[field] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function deleteBookFromCatalog(bookId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is book ko catalog se delete karna chahte hain?')) return;
+      booksCatalogList = booksCatalogList.filter(x => x.id !== bookId);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateClassNotebookMatrix(cls, nbType, rawVal) {
+      if (!isAdminUser()) return;
+      if (!notebookConfig.classMatrix[cls]) {
+        notebookConfig.classMatrix[cls] = { Ruled: 0, Square: 0, FourLine: 0, Plain: 0, Diary: 1 };
+      }
+      notebookConfig.classMatrix[cls][nbType] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateNotebookGlobalRates(key, rawVal) {
+      if (!isAdminUser()) return;
+      notebookConfig[key] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateNotebookStockCount(nbKey, rawVal) {
+      if (!isAdminUser()) return;
+      notebookConfig.stock[nbKey] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function pushAcademicItemToPosCart(itemObj) {
+      const existing = posCartItems.find(c =>
+        c.category === itemObj.category &&
+        String(c.size) === String(itemObj.size) &&
+        String(c.bookId || '') === String(itemObj.bookId || '')
+      );
+      const already = existing ? existing.pieces : 0;
+      const avail = getAvailableStockForSize(itemObj.category, itemObj.size, itemObj.bookId || '');
+      if (avail <= 0 || (already + itemObj.pieces) > avail) {
+        return false;
+      }
+      if (existing) {
+        existing.pieces += itemObj.pieces;
+      } else {
+        posCartItems.push({ ...itemObj, itemGroup: 'BOOKS_STATIONERY' });
+      }
+      return true;
+    }
+
+    function addSingleBookToCart(bookId) {
+      const b = booksCatalogList.find(x => x.id === bookId);
+      if (!b) return;
+      const ok = pushAcademicItemToPosCart({
+        category: `Book: ${b.bookName}`,
+        size: b.studentClass,
+        bookId: b.id,
+        pieces: 1,
+        rate: Number(b.sellPrice || 0)
+      });
+      if (!ok) {
+        alert(`Stock Alert: "${b.bookName}" stock mein available nahi hai!`);
+        return;
+      }
+      renderContent();
+      alert(`"${b.bookName}" bill cart mein add ho gayi hai!`);
+    }
+
+    function addFullClassBooksComboToCart(cls, silent = false) {
+      const classBooks = booksCatalogList.filter(b => b.studentClass === cls);
+      if (!classBooks.length) {
+        if (!silent) alert(`${cls} mein abhi koi book add nahi hai.`);
+        return;
+      }
+      let added = 0;
+      const skipped = [];
+      classBooks.forEach(b => {
+        const ok = pushAcademicItemToPosCart({
+          category: `Book: ${b.bookName}`,
+          size: b.studentClass,
+          bookId: b.id,
+          pieces: 1,
+          rate: Number(b.sellPrice || 0)
+        });
+        if (ok) added++;
+        else skipped.push(b.bookName);
+      });
+
+      if (!silent) {
+        switchTab('QuickPOS');
+        setTimeout(() => {
+          const clsEl = document.getElementById('posStudentClass');
+          if (clsEl) clsEl.value = cls;
+        }, 60);
+        if (skipped.length) {
+          alert(`${cls} ki ${added} books cart mein add ho gayin.\nOut of stock books skip huin: ${skipped.join(', ')}`);
+        }
+      }
+    }
+
+    function addClassNotebookSetToCart(cls, includeDiary = true, silent = false) {
+      const c = getClassNotebookSummary(cls);
+      const nbEntries = [
+        { size: 'Ruled', pcs: c.ruled, rate: c.nbRate },
+        { size: 'Square', pcs: c.square, rate: c.nbRate },
+        { size: '4-Line', pcs: c.fourLine, rate: c.nbRate },
+        { size: 'Plain', pcs: c.plain, rate: c.nbRate }
+      ];
+      const skipped = [];
+      nbEntries.forEach(e => {
+        if (e.pcs > 0) {
+          const ok = pushAcademicItemToPosCart({
+            category: 'Notebook',
+            size: e.size,
+            pieces: e.pcs,
+            rate: e.rate
+          });
+          if (!ok) skipped.push(`${e.size} Notebook (${e.pcs})`);
+        }
+      });
+      if (includeDiary && c.diary > 0) {
+        const okD = pushAcademicItemToPosCart({
+          category: 'School Diary',
+          size: 'Diary',
+          pieces: c.diary,
+          rate: c.diaryRate
+        });
+        if (!okD) skipped.push('School Diary');
+      }
+
+      if (!silent) {
+        switchTab('QuickPOS');
+        setTimeout(() => {
+          const clsEl = document.getElementById('posStudentClass');
+          if (clsEl) clsEl.value = cls;
+        }, 60);
+        if (skipped.length) {
+          alert(`Stock Alert: Kuch items kam stock ki wajah se skip hue: ${skipped.join(', ')}`);
+        }
+      }
+    }
+
+    function addCompleteClassKitToCart(cls) {
+      addFullClassBooksComboToCart(cls, true);
+      addClassNotebookSetToCart(cls, true, true);
+      switchTab('QuickPOS');
+      setTimeout(() => {
+        const clsEl = document.getElementById('posStudentClass');
+        if (clsEl) clsEl.value = cls;
+      }, 60);
+    }
+
+    function addLooseNotebookOrDiaryToCart(openCheckout = false) {
+      const typeVal = document.getElementById('looseNbType').value;
+      const qtyVal = Math.max(1, Number(document.getElementById('looseNbQty').value) || 1);
+      const isDiary = typeVal === 'Diary';
+      const itemObj = {
+        category: isDiary ? 'School Diary' : 'Notebook',
+        size: isDiary ? 'Diary' : typeVal,
+        pieces: qtyVal,
+        rate: isDiary ? Number(notebookConfig.diaryRate || 200) : Number(notebookConfig.notebookRate || 40)
+      };
+      const ok = pushAcademicItemToPosCart(itemObj);
+      if (!ok) {
+        alert(`Stock Alert: ${isDiary ? 'School Diary' : typeVal + ' Notebook'} ka itna stock available nahi hai!`);
+        return;
+      }
+      if (openCheckout) {
+        switchTab('QuickPOS');
+      } else {
+        renderContent();
+        alert(`${qtyVal} ${isDiary ? 'School Diary' : typeVal + ' Notebook'} bill cart mein add ho gaya hai!`);
+      }
+    }
+
+    function handleAddBookOrNotebookInward(e) {
+      e.preventDefault();
+      const date = document.getElementById('bkInwardDate').value;
+      const sellerName = document.getElementById('bkInwardSeller').value.trim();
+      const targetVal = document.getElementById('bkInwardTarget').value;
+      const pieces = Math.max(1, Number(document.getElementById('bkInwardQty').value) || 1);
+      const unitBuy = Math.max(0, Number(document.getElementById('bkInwardUnitBuy').value) || 0);
+      const billAmount = Math.max(0, Number(document.getElementById('bkInwardBillAmt').value) || (unitBuy * pieces));
+      const paidAmount = Math.max(0, Number(document.getElementById('bkInwardPaidAmt').value) || 0);
+
+      let itemLabel = '';
+      if (targetVal.startsWith('NB:')) {
+        const nbKey = targetVal.slice(3);
+        notebookConfig.stock[nbKey] = Number(notebookConfig.stock[nbKey] || 0) + pieces;
+        if (unitBuy > 0) {
+          if (nbKey === 'Diary') notebookConfig.diaryBuyRate = unitBuy;
+          else notebookConfig.notebookBuyRate = unitBuy;
+        }
+        itemLabel = nbKey === 'Diary' ? 'School Diary' : `Notebook (${nbKey})`;
+      } else if (targetVal.startsWith('BK:')) {
+        const bId = targetVal.slice(3);
+        const b = booksCatalogList.find(x => x.id === bId);
+        if (b) {
+          b.opening = Number(b.opening || 0) + pieces;
+          if (unitBuy > 0) b.buyPrice = unitBuy;
+          itemLabel = `${b.studentClass} — ${b.bookName}`;
+        }
+      }
+
+      bookInwardsList.push({
+        id: 'BKI-' + Date.now(),
+        date,
+        sellerName,
+        targetVal,
+        itemLabel,
+        pieces,
+        unitBuy,
+        billAmount,
+        paidAmount,
+        addedBy: currentSession ? currentSession.displayName : 'Staff'
+      });
+
+      logStaffActivity('Book/Copy Inward', `+${pieces} ${itemLabel} from ${sellerName}, Bill ₹${billAmount}`);
+      saveDataAndSync();
+      renderContent();
+      alert(`+${pieces} (${itemLabel}) stock aur Seller Khata mein save ho gaya!`);
+    }
+
+    function updateBookInwardAmount(inwId, field, rawVal) {
+      if (!isAdminUser()) return;
+      const rec = bookInwardsList.find(x => x.id === inwId);
+      if (!rec) return;
+      rec[field] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function recordBookSellerPaymentPrompt(sellerName, dueAmt) {
+      const amtStr = prompt(`Seller "${sellerName}" ka baaki due ${formatINR(dueAmt)} hai.\nAbhi kitna payment de rahe hain (₹)?`, String(dueAmt > 0 ? dueAmt : ''));
+      if (amtStr === null) return;
+      const amt = Math.max(0, Number(amtStr) || 0);
+      if (amt <= 0) return;
+
+      bookSellerPaymentsList.push({
+        id: 'BSP-' + Date.now(),
+        date: getTodayDate(),
+        sellerName,
+        amount: amt,
+        paidBy: currentSession ? currentSession.displayName : 'Admin'
+      });
+
+      logStaffActivity('Book Seller Payment', `Paid ₹${amt} to ${sellerName}`);
+      saveDataAndSync();
+      renderContent();
+      alert(`${sellerName} ko ${formatINR(amt)} ka payment record ho gaya!`);
     }
 
     // Start App
