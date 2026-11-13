@@ -7143,7 +7143,9 @@ function doPost(e) {
 
 
     // =========================================================================
-    // BOOKS, CLASS-WISE NOTEBOOK MATRIX, SCHOOL DIARY, SELLER KHATA & PROFIT ENGINE
+
+    // =========================================================================
+    // DEDICATED BOOKS, NOTEBOOKS & DIARY TABS ENGINE
     // =========================================================================
     function getClassNotebookSummary(cls) {
       const m = (notebookConfig.classMatrix && notebookConfig.classMatrix[cls]) || { Ruled: 0, Square: 0, FourLine: 0, Plain: 0, Diary: 0 };
@@ -7158,697 +7160,6 @@ function doPost(e) {
       const nbAmount = totalCopies * nbRate;
       const diaryAmount = diary * diaryRate;
       return { ruled, square, fourLine, plain, totalCopies, nbRate, nbAmount, diary, diaryRate, diaryAmount };
-    }
-
-    function renderBooksStoreTab(container) {
-      const adminCanEdit = isAdminUser();
-      const selectedClass = activeBooksClassTab || 'STD. I';
-      const classBooks = booksCatalogList.filter(b => b.studentClass === selectedClass);
-
-      const nbRate = Number(notebookConfig.notebookRate || 40);
-      const nbBuyRate = Number(notebookConfig.notebookBuyRate || 0);
-      const diaryRate = Number(notebookConfig.diaryRate || 200);
-      const diaryBuyRate = Number(notebookConfig.diaryBuyRate || 0);
-
-      const nbStats = {
-        Ruled: getNotebookOrDiaryLiveMetrics('Ruled'),
-        Square: getNotebookOrDiaryLiveMetrics('Square'),
-        FourLine: getNotebookOrDiaryLiveMetrics('FourLine'),
-        Plain: getNotebookOrDiaryLiveMetrics('Plain'),
-        Diary: getNotebookOrDiaryLiveMetrics('Diary')
-      };
-
-      // Class Books Combo calculation
-      let classBooksSellSum = 0;
-      let classBooksBuySum = 0;
-      let classBooksAvailCount = 0;
-      classBooks.forEach(b => {
-        const bm = getBookLiveMetrics(b.id);
-        classBooksSellSum += bm.sellPrice;
-        classBooksBuySum += bm.buyPrice;
-        if (bm.available > 0) classBooksAvailCount++;
-      });
-
-      const clsNb = getClassNotebookSummary(selectedClass);
-      const completeKitTotal = classBooksSellSum + clsNb.nbAmount + clsNb.diaryAmount;
-
-      // Overall Books + Notebooks + Diary Revenue & Profit Calculation
-      let totalAcademicRevenue = 0;
-      let totalAcademicCost = 0;
-      let costPendingItemsCount = 0;
-
-      // 1. Books revenue & cost
-      booksCatalogList.forEach(b => {
-        const bm = getBookLiveMetrics(b.id);
-        const bookSalesAmt = salesList
-          .filter(s => !s.isReturned && (s.bookId === b.id || (s.category === `Book: ${b.bookName}` && s.size === b.studentClass)))
-          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
-        totalAcademicRevenue += bookSalesAmt;
-        totalAcademicCost += (bm.sold * bm.buyPrice);
-        if (bm.sold > 0 && bm.buyPrice <= 0) costPendingItemsCount++;
-      });
-
-      // 2. Notebooks & Diary revenue & cost
-      ['Ruled', 'Square', 'FourLine', 'Plain', 'Diary'].forEach(k => {
-        const st = nbStats[k];
-        const labelMap = { Ruled: 'Ruled', Square: 'Square', FourLine: '4-Line', Plain: 'Plain', Diary: 'Diary' };
-        const rev = salesList
-          .filter(s => !s.isReturned && (
-            (k === 'Diary' && s.category === 'School Diary') ||
-            (k !== 'Diary' && s.category === 'Notebook' && String(s.size) === labelMap[k])
-          ))
-          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
-        totalAcademicRevenue += rev;
-        totalAcademicCost += (st.sold * st.buyRate);
-        if (st.sold > 0 && st.buyRate <= 0) costPendingItemsCount++;
-      });
-
-      const netAcademicProfit = totalAcademicRevenue - totalAcademicCost;
-
-      // Seller Khata aggregation
-      const sellerMap = {};
-      bookInwardsList.forEach(inp => {
-        const seller = (inp.sellerName || 'General Book Seller').trim();
-        if (!sellerMap[seller]) {
-          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0 };
-        }
-        sellerMap[seller].totalQty += Number(inp.pieces || 0);
-        sellerMap[seller].totalBill += Number(inp.billAmount || 0);
-        sellerMap[seller].totalPaid += Number(inp.paidAmount || 0);
-      });
-      bookSellerPaymentsList.forEach(sp => {
-        const seller = (sp.sellerName || 'General Book Seller').trim();
-        if (!sellerMap[seller]) {
-          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0 };
-        }
-        sellerMap[seller].totalPaid += Number(sp.amount || 0);
-      });
-      const sellerList = Object.values(sellerMap);
-      const sellerDatalistOpts = sellerList.map(s => `<option value="${escapeHTML(s.seller)}">`).join('');
-
-      // Class Pills Bar
-      const classTabsHTML = SCHOOL_CLASSES.map(cls => {
-        const cnt = booksCatalogList.filter(b => b.studentClass === cls).length;
-        const isAct = cls === selectedClass;
-        return `
-          <button type="button" onclick="activeBooksClassTab = '${escapeHTML(cls)}'; renderContent();"
-            class="px-3 py-2 rounded-xl text-xs font-extrabold transition border ${isAct ? 'bg-blue-900 text-white border-blue-900 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}">
-            ${escapeHTML(cls)} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${isAct ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'}">${cnt}</span>
-          </button>
-        `;
-      }).join('');
-
-      // Books Table Rows for Selected Class
-      const bookRowsHTML = classBooks.length ? classBooks.map((b, idx) => {
-        const bm = getBookLiveMetrics(b.id);
-        const isLow = bm.opening > 0 && bm.available <= LOW_STOCK_THRESHOLD;
-        return `
-          <tr class="${isLow ? 'bg-rose-50/70' : 'hover:bg-slate-50'} border-b border-slate-200">
-            <td class="px-3 py-2.5 text-center text-slate-500">${idx + 1}</td>
-            <td class="px-3 py-2.5 font-bold text-slate-900">
-              ${escapeHTML(b.bookName)}
-              ${b.subjectNote ? `<div class="text-[11px] font-normal text-slate-500">${escapeHTML(b.subjectNote)}</div>` : ''}
-            </td>
-            <td class="px-3 py-2.5 text-slate-700 font-medium">${escapeHTML(b.publisher || '-')}</td>
-            <td class="px-3 py-2.5 text-center">
-              ${adminCanEdit ? `
-                <input type="number" min="0" value="${bm.opening}"
-                  onchange="updateBookCatalogField('${b.id}', 'opening', this.value)"
-                  class="w-16 text-center border border-slate-300 rounded px-1.5 py-1 text-xs font-bold" />
-              ` : `<span>${bm.opening}</span>`}
-            </td>
-            <td class="px-3 py-2.5 text-center font-semibold text-amber-700">${bm.sold}</td>
-            <td class="px-3 py-2.5 text-center font-extrabold ${bm.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">${bm.available}</td>
-            <td class="px-3 py-2.5 text-center">
-              ${adminCanEdit ? `
-                <input type="number" min="0" value="${bm.buyPrice}" placeholder="0"
-                  onchange="updateBookCatalogField('${b.id}', 'buyPrice', this.value)"
-                  class="w-20 text-center border border-amber-300 bg-amber-50/40 rounded px-1.5 py-1 text-xs font-semibold"
-                  title="Buying Price (Baad mein bhi dal sakte hain)" />
-              ` : `<span class="text-xs text-slate-500">${bm.buyPrice > 0 ? formatINR(bm.buyPrice) : 'Pending'}</span>`}
-            </td>
-            <td class="px-3 py-2.5 text-center">
-              ${adminCanEdit ? `
-                <input type="number" min="0" value="${bm.sellPrice}"
-                  onchange="updateBookCatalogField('${b.id}', 'sellPrice', this.value)"
-                  class="w-20 text-center border border-blue-300 rounded px-1.5 py-1 text-xs font-bold text-blue-950"
-                  title="Selling Price" />
-              ` : `<span class="font-bold text-blue-950">${formatINR(bm.sellPrice)}</span>`}
-            </td>
-            <td class="px-3 py-2.5 text-center whitespace-nowrap space-x-1">
-              <button type="button" onclick="addSingleBookToCart('${b.id}')"
-                class="bg-blue-900 hover:bg-blue-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg shadow-xs">
-                + Bill
-              </button>
-              ${adminCanEdit ? `
-                <button type="button" onclick="deleteBookFromCatalog('${b.id}')"
-                  class="text-xs text-rose-600 hover:text-rose-800 font-bold px-1">
-                  &times;
-                </button>
-              ` : ''}
-            </td>
-          </tr>
-        `;
-      }).join('') : `
-        <tr>
-          <td colspan="9" class="py-8 text-center text-xs text-slate-500">
-            <strong>${escapeHTML(selectedClass)}</strong> mein abhi koi book add nahi hai. Neeche <strong>+ Add New Book</strong> form se is class ki books add karein.
-          </td>
-        </tr>
-      `;
-
-      // Notebook Matrix Rows (Exact table from user's image!)
-      let sumRuled = 0, sumSquare = 0, sumFourLine = 0, sumPlain = 0, sumAllCopies = 0;
-      const matrixRowsHTML = SCHOOL_CLASSES.map(cls => {
-        const c = getClassNotebookSummary(cls);
-        sumRuled += c.ruled;
-        sumSquare += c.square;
-        sumFourLine += c.fourLine;
-        sumPlain += c.plain;
-        sumAllCopies += c.totalCopies;
-        const isCurrent = cls === selectedClass;
-        return `
-          <tr class="${isCurrent ? 'bg-blue-50/80 font-semibold' : 'hover:bg-slate-50'} border-b border-slate-200">
-            <td class="px-3 py-2 font-bold text-slate-900 whitespace-nowrap">${escapeHTML(cls)}</td>
-            <td class="px-2 py-2 text-center">
-              ${adminCanEdit ? `<input type="number" min="0" value="${c.ruled}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Ruled', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.ruled || '-')}
-            </td>
-            <td class="px-2 py-2 text-center">
-              ${adminCanEdit ? `<input type="number" min="0" value="${c.square}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Square', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.square || '-')}
-            </td>
-            <td class="px-2 py-2 text-center">
-              ${adminCanEdit ? `<input type="number" min="0" value="${c.fourLine}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'FourLine', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.fourLine || '-')}
-            </td>
-            <td class="px-2 py-2 text-center">
-              ${adminCanEdit ? `<input type="number" min="0" value="${c.plain}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Plain', this.value)" class="w-14 text-center border border-slate-300 rounded py-0.5 text-xs" />` : (c.plain || '-')}
-            </td>
-            <td class="px-3 py-2 text-center font-extrabold text-blue-950">${c.totalCopies}</td>
-            <td class="px-3 py-2 text-center text-slate-600">${formatINR(c.nbRate)}</td>
-            <td class="px-3 py-2 text-right font-bold text-emerald-700">${formatINR(c.nbAmount)}</td>
-            <td class="px-3 py-2 text-center font-semibold text-purple-800">${c.diary > 0 ? `${c.diary} (${formatINR(c.diaryAmount)})` : '-'}</td>
-            <td class="px-3 py-2 text-center">
-              ${c.totalCopies > 0 ? `
-                <button type="button" onclick="addClassNotebookSetToCart('${escapeHTML(cls)}', false)"
-                  class="bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg">
-                  + Bill Set
-                </button>
-              ` : `<span class="text-[11px] text-slate-400">N/A</span>`}
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      container.innerHTML = `
-        <div class="space-y-8">
-          <!-- TOP: Academic Revenue & Profit Summary Strip -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div class="bg-blue-950 text-white rounded-xl p-4 shadow-xs">
-              <p class="text-[11px] font-bold uppercase text-blue-200">Books, Notebooks &amp; Diary Sales</p>
-              <p class="text-2xl font-extrabold mt-1">${formatINR(totalAcademicRevenue)}</p>
-              <p class="text-[11px] text-blue-300 mt-0.5">Total Academic Billing</p>
-            </div>
-            <div class="bg-white border border-slate-200 rounded-xl p-4">
-              <p class="text-[11px] font-bold uppercase text-slate-500">Total Buying Cost (Sold Items)</p>
-              <p class="text-2xl font-extrabold text-slate-900 mt-1">${formatINR(totalAcademicCost)}</p>
-              <p class="text-[11px] ${costPendingItemsCount > 0 ? 'text-amber-700 font-semibold' : 'text-slate-500'} mt-0.5">
-                ${costPendingItemsCount > 0 ? `${costPendingItemsCount} item(s) ka buying price pending hai` : 'All sold item costs entered'}
-              </p>
-            </div>
-            <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-              <p class="text-[11px] font-bold uppercase text-emerald-800">Net Profit (Books + Copy + Diary)</p>
-              <p class="text-2xl font-extrabold text-emerald-700 mt-1">${formatINR(netAcademicProfit)}</p>
-              <p class="text-[11px] text-emerald-800 mt-0.5">Baad mein buying price dalne par auto-update hoga</p>
-            </div>
-            <div class="bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <p class="text-[11px] font-bold uppercase text-amber-900">Active Cart Status</p>
-              <p class="text-2xl font-extrabold text-amber-950 mt-1">${posCartItems.length} <span class="text-xs font-semibold">Line(s)</span></p>
-              <button type="button" onclick="switchTab('QuickPOS')" class="text-xs font-bold text-blue-900 underline mt-0.5">
-                Go to POS Checkout &amp; Print Bill &rarr;
-              </button>
-            </div>
-          </div>
-
-          <!-- SECTION 1: CLASS-WISE BOOKS CATALOG & 1-CLICK COMBO SET -->
-          <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-4 shadow-xs">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <h2 class="text-lg font-extrabold text-slate-900">1. Class-Wise Books Store &amp; Combo Set</h2>
-                <p class="text-xs text-slate-600">Class chunein, books dekhein ya neeche 1-Click button se poora class set bill cart mein dalein.</p>
-              </div>
-              <span class="text-xs font-bold bg-blue-100 text-blue-950 px-3 py-1 rounded-full self-start">
-                Selected Class: ${escapeHTML(selectedClass)}
-              </span>
-            </div>
-
-            <!-- Class Selector Pills -->
-            <div class="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
-              ${classTabsHTML}
-            </div>
-
-            <!-- Books Table for Active Class -->
-            <div class="overflow-x-auto border border-slate-200 rounded-xl">
-              <table class="min-w-full text-sm bg-white">
-                <thead class="bg-slate-800 text-white text-xs">
-                  <tr>
-                    <th class="px-3 py-2.5 text-center">#</th>
-                    <th class="px-3 py-2.5 text-left">Book Name</th>
-                    <th class="px-3 py-2.5 text-left">Publisher Name</th>
-                    <th class="px-3 py-2.5 text-center">Inward</th>
-                    <th class="px-3 py-2.5 text-center">Sold</th>
-                    <th class="px-3 py-2.5 text-center">Avail</th>
-                    <th class="px-3 py-2.5 text-center">Buying Price (₹)</th>
-                    <th class="px-3 py-2.5 text-center">Selling Price (₹)</th>
-                    <th class="px-3 py-2.5 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody>${bookRowsHTML}</tbody>
-                <tfoot class="bg-slate-100 font-bold text-slate-900 text-xs">
-                  <tr>
-                    <td colspan="6" class="px-3 py-2.5 text-right">${escapeHTML(selectedClass)} Full Books Set Total (${classBooks.length} Books):</td>
-                    <td class="px-3 py-2.5 text-center text-amber-800">${formatINR(classBooksBuySum)}</td>
-                    <td class="px-3 py-2.5 text-center text-blue-950 text-sm">${formatINR(classBooksSellSum)}</td>
-                    <td></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            <!-- 1-CLICK COMBO BUTTONS BELOW CLASS BOOKS -->
-            <div class="bg-gradient-to-r from-blue-950 to-indigo-900 text-white rounded-2xl p-4 sm:p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 shadow-md">
-              <div>
-                <span class="bg-amber-400 text-slate-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">1-Click Class Combo Billing</span>
-                <h3 class="text-base sm:text-lg font-extrabold mt-1">${escapeHTML(selectedClass)} — Full Academic Set</h3>
-                <p class="text-xs text-blue-200 mt-0.5">
-                  Books (${classBooks.length}): <strong>${formatINR(classBooksSellSum)}</strong> &bull;
-                  Notebooks (${clsNb.totalCopies} Copies): <strong>${formatINR(clsNb.nbAmount)}</strong> &bull;
-                  School Diary (${clsNb.diary}): <strong>${formatINR(clsNb.diaryAmount)}</strong>
-                </p>
-              </div>
-              <div class="flex flex-wrap gap-2.5">
-                <button type="button" onclick="addFullClassBooksComboToCart('${escapeHTML(selectedClass)}')"
-                  class="bg-white text-blue-950 hover:bg-blue-50 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
-                  + Add ${escapeHTML(selectedClass)} Books Combo (${formatINR(classBooksSellSum)})
-                </button>
-                ${clsNb.totalCopies > 0 ? `
-                <button type="button" onclick="addClassNotebookSetToCart('${escapeHTML(selectedClass)}', true)"
-                  class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
-                  + Notebooks (${clsNb.totalCopies}) &amp; Diary (${formatINR(clsNb.nbAmount + clsNb.diaryAmount)})
-                </button>
-                ` : ''}
-                <button type="button" onclick="addCompleteClassKitToCart('${escapeHTML(selectedClass)}')"
-                  class="bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow transition">
-                  + Full Kit (Books+Copy+Diary: ${formatINR(completeKitTotal)})
-                </button>
-              </div>
-            </div>
-
-            <!-- Admin: Add New Book to Selected Class -->
-            ${adminCanEdit ? `
-            <form onsubmit="handleAddBookToCatalog(event)" class="bg-slate-50 border border-slate-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5 items-end">
-              <div>
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">Class *</label>
-                <select id="newBookClass" class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-bold">
-                  ${SCHOOL_CLASSES.map(c => `<option value="${escapeHTML(c)}" ${c === selectedClass ? 'selected' : ''}>${escapeHTML(c)}</option>`).join('')}
-                </select>
-              </div>
-              <div class="lg:col-span-2">
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">Book Name *</label>
-                <input type="text" id="newBookName" placeholder="e.g. English Reader / Maths Magic" required
-                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-semibold" />
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">Publisher Name</label>
-                <input type="text" id="newBookPublisher" placeholder="e.g. Oxford / NCERT"
-                  class="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs" />
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-700 mb-1">Stock &amp; Sell Price (₹)</label>
-                <div class="flex gap-1.5">
-                  <input type="number" id="newBookStock" min="0" value="20" placeholder="Qty" title="Initial Stock"
-                    class="w-1/2 bg-white border border-slate-300 rounded-lg px-2 py-2 text-xs font-bold" />
-                  <input type="number" id="newBookSellPrice" min="0" value="0" placeholder="Sell ₹" title="Selling Price (Baad mein bhi dal sakte hain)"
-                    class="w-1/2 bg-white border border-blue-300 rounded-lg px-2 py-2 text-xs font-bold" />
-                </div>
-              </div>
-              <div>
-                <button type="submit" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow">
-                  + Add Book
-                </button>
-              </div>
-            </form>
-            ` : ''}
-          </div>
-
-          <!-- SECTION 2: NOTEBOOKS & SCHOOL DIARY STOCK, LOOSE BILLING & CLASS MATRIX -->
-          <div class="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-5 shadow-xs">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div>
-                <h2 class="text-lg font-extrabold text-slate-900">2. Notebooks &amp; School Diary (Loose Billing + Class Matrix)</h2>
-                <p class="text-xs text-slate-600">Mid-session mein 3-4 loose copies bechne ke liye ya future rate (₹40 / ₹200) change karne ke liye</p>
-              </div>
-            </div>
-
-            <!-- Live Stock & Rate Cards for 4 Notebook Types + School Diary -->
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-              ${[
-                { key: 'Ruled', label: 'Ruled Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
-                { key: 'Square', label: 'Square Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
-                { key: 'FourLine', label: '4-Line Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
-                { key: 'Plain', label: 'Plain Notebook', rate: nbRate, buy: nbBuyRate, isDiary: false },
-                { key: 'Diary', label: 'School Diary', rate: diaryRate, buy: diaryBuyRate, isDiary: true }
-              ].map(item => {
-                const st = nbStats[item.key];
-                return `
-                  <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/70 space-y-1.5">
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-extrabold text-slate-900">${item.label}</span>
-                      <span class="text-xs font-bold text-blue-900">${formatINR(item.rate)}</span>
-                    </div>
-                    <div class="flex justify-between text-[11px] text-slate-600">
-                      <span>Sold: <strong>${st.sold}</strong></span>
-                      <span class="${st.available <= 5 ? 'text-rose-600 font-bold' : 'text-emerald-700 font-bold'}">Avail: ${st.available}</span>
-                    </div>
-                    ${adminCanEdit ? `
-                      <div class="pt-1 border-t border-slate-200 flex items-center justify-between gap-1 text-[10px]">
-                        <span class="text-slate-500">Total Stock:</span>
-                        <input type="number" min="0" value="${st.opening}"
-                          onchange="updateNotebookStockCount('${item.key}', this.value)"
-                          class="w-16 text-center bg-white border border-slate-300 rounded py-0.5 font-bold" />
-                      </div>
-                    ` : ''}
-                  </div>
-                `;
-              }).join('')}
-            </div>
-
-            <!-- Admin Rate Settings for Notebooks & Diary -->
-            ${adminCanEdit ? `
-            <div class="bg-amber-50/80 border border-amber-200 rounded-xl p-3.5 grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
-              <div>
-                <label class="block text-[11px] font-bold text-slate-800 mb-1">Notebook Selling Rate (₹)</label>
-                <input type="number" min="0" value="${nbRate}"
-                  onchange="updateNotebookGlobalRates('notebookRate', this.value)"
-                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-extrabold text-blue-950" />
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-800 mb-1">Notebook Buying Cost (₹)</label>
-                <input type="number" min="0" value="${nbBuyRate}"
-                  onchange="updateNotebookGlobalRates('notebookBuyRate', this.value)"
-                  class="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-sm font-bold" />
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-800 mb-1">School Diary Selling Rate (₹)</label>
-                <input type="number" min="0" value="${diaryRate}"
-                  onchange="updateNotebookGlobalRates('diaryRate', this.value)"
-                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-1.5 text-sm font-extrabold text-blue-950" />
-              </div>
-              <div>
-                <label class="block text-[11px] font-bold text-slate-800 mb-1">School Diary Buying Cost (₹)</label>
-                <input type="number" min="0" value="${diaryBuyRate}"
-                  onchange="updateNotebookGlobalRates('diaryBuyRate', this.value)"
-                  class="w-full bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-sm font-bold" />
-              </div>
-            </div>
-            ` : ''}
-
-            <!-- Mid-Session Loose / Extra Notebook & Diary Billing Box -->
-            <div class="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4">
-              <h3 class="text-sm font-extrabold text-emerald-950 mb-2">Loose / Extra Notebook &amp; School Diary Billing (2-3 Mahine Baad Extra Copies ke Liye)</h3>
-              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Select Item *</label>
-                  <select id="looseNbType" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold">
-                    <option value="Ruled">Ruled Notebook (${formatINR(nbRate)})</option>
-                    <option value="Square">Square Notebook (${formatINR(nbRate)})</option>
-                    <option value="4-Line">4-Line Notebook (${formatINR(nbRate)})</option>
-                    <option value="Plain">Plain Notebook (${formatINR(nbRate)})</option>
-                    <option value="Diary">School Diary (${formatINR(diaryRate)})</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity (Copies / Pcs) *</label>
-                  <input type="number" id="looseNbQty" min="1" value="3"
-                    class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
-                </div>
-                <div class="sm:col-span-2 flex gap-2">
-                  <button type="button" onclick="addLooseNotebookOrDiaryToCart(false)"
-                    class="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
-                    + Add to Bill Cart
-                  </button>
-                  <button type="button" onclick="addLooseNotebookOrDiaryToCart(true)"
-                    class="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow transition">
-                    + Add &amp; Open Checkout
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Class-Wise Notebook Matrix Table (Exact structure from user's Excel image) -->
-            <div>
-              <h3 class="text-sm font-extrabold text-slate-900 mb-2">Class-Wise Notebook Combo Matrix &amp; School Diary Chart</h3>
-              <div class="overflow-x-auto border border-slate-200 rounded-xl">
-                <table class="min-w-full text-xs sm:text-sm bg-white">
-                  <thead class="bg-slate-900 text-white text-xs">
-                    <tr>
-                      <th class="px-3 py-2.5 text-left">Class</th>
-                      <th class="px-2 py-2.5 text-center">Ruled</th>
-                      <th class="px-2 py-2.5 text-center">Square</th>
-                      <th class="px-2 py-2.5 text-center">4-Line</th>
-                      <th class="px-2 py-2.5 text-center">Plain</th>
-                      <th class="px-3 py-2.5 text-center">Total Copies</th>
-                      <th class="px-3 py-2.5 text-center">Rate</th>
-                      <th class="px-3 py-2.5 text-right">Notebook Amt</th>
-                      <th class="px-3 py-2.5 text-center">School Diary</th>
-                      <th class="px-3 py-2.5 text-center">Quick Bill</th>
-                    </tr>
-                  </thead>
-                  <tbody>${matrixRowsHTML}</tbody>
-                  <tfoot class="bg-slate-200 font-extrabold text-slate-900 text-xs">
-                    <tr>
-                      <td class="px-3 py-2.5">Total Across Classes</td>
-                      <td class="px-2 py-2.5 text-center">${sumRuled}</td>
-                      <td class="px-2 py-2.5 text-center">${sumSquare}</td>
-                      <td class="px-2 py-2.5 text-center">${sumFourLine}</td>
-                      <td class="px-2 py-2.5 text-center">${sumPlain}</td>
-                      <td class="px-3 py-2.5 text-center text-blue-950">${sumAllCopies}</td>
-                      <td class="px-3 py-2.5 text-center">${formatINR(nbRate)}</td>
-                      <td class="px-3 py-2.5 text-right">${formatINR(sumAllCopies * nbRate)}</td>
-                      <td colspan="2"></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <!-- SECTION 3: BOOKS & NOTEBOOKS STOCK INWARD + SELLER KHATA -->
-          <div class="bg-blue-50/60 border border-blue-200 rounded-2xl p-4 sm:p-5 space-y-5">
-            <div>
-              <h2 class="text-lg font-extrabold text-blue-950">3. Books / Notebooks Stock Inward &amp; Seller Khata</h2>
-              <p class="text-xs text-blue-800">Kis seller se kitne ke books/notebooks liye gaye, kitna payment hua aur kitna due hai — sab track karein (Buying price baad mein bhi dal sakte hain)</p>
-            </div>
-
-            <form onsubmit="handleAddBookOrNotebookInward(event)" class="bg-white border border-blue-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
-                ${renderDDMMDateField('bkInwardDate', getTodayDate(), '', true)}
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Seller / Book Depot Name *</label>
-                <input type="text" id="bkInwardSeller" list="bookSellerDatalist" placeholder="e.g. Gyan Ganga Book Depot" required
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold" />
-                <datalist id="bookSellerDatalist">${sellerDatalistOpts}</datalist>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Select Book / Notebook / Diary *</label>
-                <select id="bkInwardTarget" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs sm:text-sm font-semibold">
-                  <optgroup label="Notebooks &amp; School Diary">
-                    <option value="NB:Ruled">Notebook — Ruled</option>
-                    <option value="NB:Square">Notebook — Square</option>
-                    <option value="NB:FourLine">Notebook — 4-Line</option>
-                    <option value="NB:Plain">Notebook — Plain</option>
-                    <option value="NB:Diary">School Diary</option>
-                  </optgroup>
-                  <optgroup label="Class-Wise Books">
-                    ${booksCatalogList.map(b => `<option value="BK:${b.id}">${escapeHTML(b.studentClass)} — ${escapeHTML(b.bookName)} (${escapeHTML(b.publisher || 'No Pub')})</option>`).join('')}
-                  </optgroup>
-                </select>
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity Received *</label>
-                <input type="number" id="bkInwardQty" min="1" value="25" required
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-amber-800 mb-1">Per Piece Buying Rate (₹) (Optional)</label>
-                <input type="number" id="bkInwardUnitBuy" min="0" value="0" oninput="const q=Number(document.getElementById('bkInwardQty').value||0); const r=Number(this.value||0); if(r>0){document.getElementById('bkInwardBillAmt').value = q*r;}"
-                  class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm font-bold" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-blue-900 mb-1">Total Seller Bill Amount (₹)</label>
-                <input type="number" id="bkInwardBillAmt" min="0" value="0"
-                  class="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm font-bold" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-emerald-800 mb-1">Paid to Seller Now (₹)</label>
-                <input type="number" id="bkInwardPaidAmt" min="0" value="0"
-                  class="w-full border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold" />
-              </div>
-              <div>
-                <button type="submit" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow">
-                  + Add Stock &amp; Seller Khata
-                </button>
-              </div>
-            </form>
-
-            <!-- Seller Summary Ledger -->
-            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-              <div class="bg-blue-950 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider">
-                Book &amp; Notebook Sellers Ledger (Total Kis Seller Se Kitne Ke Books Liye Gaye)
-              </div>
-              <table class="min-w-full text-xs sm:text-sm">
-                <thead class="bg-slate-100 text-slate-800 text-xs">
-                  <tr>
-                    <th class="px-3 py-2 text-center">#</th>
-                    <th class="px-3 py-2 text-left">Seller / Book Distributor</th>
-                    <th class="px-3 py-2 text-center">Total Pcs Supplied</th>
-                    <th class="px-3 py-2 text-right">Total Purchase (₹)</th>
-                    <th class="px-3 py-2 text-right">Total Paid (₹)</th>
-                    <th class="px-3 py-2 text-right">Balance Due (₹)</th>
-                    <th class="px-3 py-2 text-center">Action</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200">
-                  ${sellerList.length ? sellerList.map((sl, i) => {
-                    const due = Math.max(0, sl.totalBill - sl.totalPaid);
-                    return `
-                      <tr>
-                        <td class="px-3 py-2 text-center text-slate-500">${i + 1}</td>
-                        <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(sl.seller)}</td>
-                        <td class="px-3 py-2 text-center font-semibold">${sl.totalQty} Pcs</td>
-                        <td class="px-3 py-2 text-right font-bold text-blue-950">${formatINR(sl.totalBill)}</td>
-                        <td class="px-3 py-2 text-right font-semibold text-emerald-700">${formatINR(sl.totalPaid)}</td>
-                        <td class="px-3 py-2 text-right font-extrabold ${due > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatINR(due)}</td>
-                        <td class="px-3 py-2 text-center">
-                          <button type="button" onclick="recordBookSellerPaymentPrompt('${escapeHTML(sl.seller)}', ${due})"
-                            class="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-2.5 py-1 rounded-lg">
-                            + Pay Seller
-                          </button>
-                        </td>
-                      </tr>
-                    `;
-                  }).join('') : `<tr><td colspan="7" class="py-5 text-center text-xs text-slate-500">Abhi tak kisi seller se book inward entry nahi hui hai.</td></tr>`}
-                </tbody>
-              </table>
-            </div>
-
-            <!-- Inward History Log (Editable Bill Amount later!) -->
-            ${bookInwardsList.length > 0 ? `
-            <div class="overflow-x-auto border border-slate-200 rounded-xl bg-white">
-              <div class="bg-slate-800 text-white px-4 py-2 text-xs font-bold uppercase tracking-wider">
-                Books &amp; Notebooks Purchase Inward Log (${bookInwardsList.length} Entries — Bill Amount Baad Mein Bhi Edit Kar Sakte Hain)
-              </div>
-              <table class="min-w-full text-xs">
-                <thead class="bg-slate-100 text-slate-800">
-                  <tr>
-                    <th class="px-3 py-2 text-center">Date</th>
-                    <th class="px-3 py-2 text-left">Seller</th>
-                    <th class="px-3 py-2 text-left">Item</th>
-                    <th class="px-3 py-2 text-center">Qty</th>
-                    <th class="px-3 py-2 text-center">Seller Bill Amt (₹)</th>
-                    <th class="px-3 py-2 text-center">Paid (₹)</th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200">
-                  ${bookInwardsList.slice().reverse().map(inp => `
-                    <tr>
-                      <td class="px-3 py-2 text-center whitespace-nowrap">${formatDateReadable(inp.date)}</td>
-                      <td class="px-3 py-2 font-bold">${escapeHTML(inp.sellerName)}</td>
-                      <td class="px-3 py-2">${escapeHTML(inp.itemLabel)}</td>
-                      <td class="px-3 py-2 text-center font-bold text-emerald-700">+${inp.pieces}</td>
-                      <td class="px-3 py-2 text-center">
-                        ${adminCanEdit ? `<input type="number" min="0" value="${Number(inp.billAmount || 0)}" onchange="updateBookInwardAmount('${inp.id}', 'billAmount', this.value)" class="w-24 text-center border border-slate-300 rounded py-0.5 font-bold" />` : formatINR(inp.billAmount)}
-                      </td>
-                      <td class="px-3 py-2 text-center">
-                        ${adminCanEdit ? `<input type="number" min="0" value="${Number(inp.paidAmount || 0)}" onchange="updateBookInwardAmount('${inp.id}', 'paidAmount', this.value)" class="w-24 text-center border border-emerald-300 rounded py-0.5 font-bold text-emerald-700" />` : formatINR(inp.paidAmount)}
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            </div>
-            ` : ''}
-          </div>
-        </div>
-      `;
-    }
-
-    function handleAddBookToCatalog(e) {
-      e.preventDefault();
-      if (!isAdminUser()) return;
-      const studentClass = document.getElementById('newBookClass').value;
-      const bookName = document.getElementById('newBookName').value.trim();
-      const publisher = document.getElementById('newBookPublisher').value.trim();
-      const opening = Math.max(0, Number(document.getElementById('newBookStock').value) || 0);
-      const sellPrice = Math.max(0, Number(document.getElementById('newBookSellPrice').value) || 0);
-
-      if (!bookName) return;
-
-      booksCatalogList.push({
-        id: 'BK-' + Date.now(),
-        studentClass,
-        bookName,
-        publisher,
-        opening,
-        buyPrice: 0,
-        sellPrice
-      });
-
-      activeBooksClassTab = studentClass;
-      logStaffActivity('Book Added', `${studentClass}: ${bookName} (${publisher || 'No Pub'})`);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function updateBookCatalogField(bookId, field, rawVal) {
-      if (!isAdminUser()) return;
-      const b = booksCatalogList.find(x => x.id === bookId);
-      if (!b) return;
-      b[field] = Math.max(0, Number(rawVal) || 0);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function deleteBookFromCatalog(bookId) {
-      if (!isAdminUser()) return;
-      if (!confirm('Kya aap is book ko catalog se delete karna chahte hain?')) return;
-      booksCatalogList = booksCatalogList.filter(x => x.id !== bookId);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function updateClassNotebookMatrix(cls, nbType, rawVal) {
-      if (!isAdminUser()) return;
-      if (!notebookConfig.classMatrix[cls]) {
-        notebookConfig.classMatrix[cls] = { Ruled: 0, Square: 0, FourLine: 0, Plain: 0, Diary: 1 };
-      }
-      notebookConfig.classMatrix[cls][nbType] = Math.max(0, Number(rawVal) || 0);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function updateNotebookGlobalRates(key, rawVal) {
-      if (!isAdminUser()) return;
-      notebookConfig[key] = Math.max(0, Number(rawVal) || 0);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function updateNotebookStockCount(nbKey, rawVal) {
-      if (!isAdminUser()) return;
-      notebookConfig.stock[nbKey] = Math.max(0, Number(rawVal) || 0);
-      saveDataAndSync();
-      renderContent();
     }
 
     function pushAcademicItemToPosCart(itemObj) {
@@ -7995,6 +7306,629 @@ function doPost(e) {
       }
     }
 
+    // ==================== TAB 1: Books & Stationery Billing (POS) ====================
+    function renderBooksBillingTab(container) {
+      const selectedClass = activeBooksClassTab || 'STD. I';
+      const classBooks = booksCatalogList.filter(b => b.studentClass === selectedClass);
+      const nbRate = Number(notebookConfig.notebookRate || 40);
+      const diaryRate = Number(notebookConfig.diaryRate || 200);
+
+      let classBooksSellSum = 0;
+      classBooks.forEach(b => {
+        const bm = getBookLiveMetrics(b.id);
+        classBooksSellSum += bm.sellPrice;
+      });
+
+      const clsNb = getClassNotebookSummary(selectedClass);
+      const completeKitTotal = classBooksSellSum + clsNb.nbAmount + clsNb.diaryAmount;
+
+      const classTabsHTML = SCHOOL_CLASSES.map(cls => {
+        const cnt = booksCatalogList.filter(b => b.studentClass === cls).length;
+        const isAct = cls === selectedClass;
+        return `
+          <button type="button" onclick="activeBooksClassTab = '${escapeHTML(cls)}'; renderContent();"
+            class="px-3 py-2 rounded-xl text-xs font-extrabold transition border ${isAct ? 'bg-blue-900 text-white border-blue-900 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}">
+            ${escapeHTML(cls)} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${isAct ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'}">${cnt}</span>
+          </button>
+        `;
+      }).join('');
+
+      const bookListRowsHTML = classBooks.length ? classBooks.map(b => {
+        const bm = getBookLiveMetrics(b.id);
+        return `
+          <div class="bg-white border border-slate-200 rounded-xl p-3.5 flex items-center justify-between gap-3 shadow-xs">
+            <div>
+              <h4 class="font-bold text-slate-900 text-sm">${escapeHTML(b.bookName)}</h4>
+              <p class="text-xs text-slate-500">Publisher: ${escapeHTML(b.publisher || 'N/A')} &bull; Seller: <span class="font-semibold text-blue-900">${escapeHTML(b.sellerName || 'N/A')}</span></p>
+              <p class="text-xs font-bold text-blue-950 mt-1">Price: ${formatINR(bm.sellPrice)} <span class="ml-2 font-semibold ${bm.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">(Avail: ${bm.available})</span></p>
+            </div>
+            <button type="button" onclick="addSingleBookToCart('${b.id}')"
+              class="bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs px-3 py-2 rounded-lg shadow shrink-0">
+              + Bill Book
+            </button>
+          </div>
+        `;
+      }).join('') : `<p class="text-xs text-slate-500 text-center py-4">Selected class mein koi book add nahi hai. "+ Add Stock" tab se add karein.</p>`;
+
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="bg-blue-950 text-white rounded-2xl p-5 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+              <span class="bg-amber-400 text-slate-950 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">Books &amp; Stationery Fast POS</span>
+              <h2 class="text-xl font-extrabold mt-1">Class-Wise 1-Click Combo Billing</h2>
+              <p class="text-xs text-blue-200 mt-0.5">Class chunein aur ek click mein poora set ya loose copies bill cart mein dalein.</p>
+            </div>
+            <button type="button" onclick="switchTab('QuickPOS')" class="bg-white text-blue-950 hover:bg-blue-50 font-extrabold text-xs px-4 py-2.5 rounded-xl shadow">
+              Go to POS Checkout &amp; Print Bill &rarr;
+            </button>
+          </div>
+
+          <!-- Class Tabs -->
+          <div class="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            ${classTabsHTML}
+          </div>
+
+          <!-- 1-Click Combo Card for Selected Class -->
+          <div class="bg-gradient-to-r from-blue-900 to-indigo-900 text-white rounded-2xl p-5 space-y-4 shadow-md">
+            <div>
+              <h3 class="text-lg font-extrabold">${escapeHTML(selectedClass)} — 1-Click Uniform Sets</h3>
+              <p class="text-xs text-blue-200 mt-0.5">Books (${classBooks.length}) &bull; Notebooks (${clsNb.totalCopies} Pcs, ₹${nbRate}/copy) &bull; Diary (${clsNb.diary}, ₹${diaryRate})</p>
+            </div>
+            <div class="flex flex-wrap gap-2.5">
+              <button type="button" onclick="addFullClassBooksComboToCart('${escapeHTML(selectedClass)}')"
+                class="bg-white text-blue-950 hover:bg-blue-50 font-extrabold text-xs px-4 py-2.5 rounded-xl shadow">
+                + Add ${escapeHTML(selectedClass)} Books Only (${formatINR(classBooksSellSum)})
+              </button>
+              ${clsNb.totalCopies > 0 ? `
+              <button type="button" onclick="addClassNotebookSetToCart('${escapeHTML(selectedClass)}', true)"
+                class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs px-4 py-2.5 rounded-xl shadow">
+                + Notebooks (${clsNb.totalCopies}) &amp; Diary (${formatINR(clsNb.nbAmount + clsNb.diaryAmount)})
+              </button>
+              ` : ''}
+              <button type="button" onclick="addCompleteClassKitToCart('${escapeHTML(selectedClass)}')"
+                class="bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-xs px-4 py-2.5 rounded-xl shadow">
+                + Full Academic Kit (${formatINR(completeKitTotal)})
+              </button>
+            </div>
+          </div>
+
+          <!-- Individual Books List for Billing -->
+          <div class="space-y-3">
+            <h3 class="text-sm font-extrabold text-slate-900">Individual Books in ${escapeHTML(selectedClass)}</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              ${bookListRowsHTML}
+            </div>
+          </div>
+
+          <!-- Mid-Session Loose Copies & Diary Billing -->
+          <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-3">
+            <h3 class="text-sm font-extrabold text-emerald-950">Mid-Session Loose / Extra Notebook &amp; Diary Billing</h3>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Select Item *</label>
+                <select id="looseNbType" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold">
+                  <option value="Ruled">Ruled Notebook (₹${nbRate})</option>
+                  <option value="Square">Square Notebook (₹${nbRate})</option>
+                  <option value="4-Line">4-Line Notebook (₹${nbRate})</option>
+                  <option value="Plain">Plain Notebook (₹${nbRate})</option>
+                  <option value="Diary">School Diary (₹${diaryRate})</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity *</label>
+                <input type="number" id="looseNbQty" min="1" value="3"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold" />
+              </div>
+              <div class="sm:col-span-2 flex gap-2">
+                <button type="button" onclick="addLooseNotebookOrDiaryToCart(false)"
+                  class="flex-1 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow">
+                  + Add to Bill Cart
+                </button>
+                <button type="button" onclick="addLooseNotebookOrDiaryToCart(true)"
+                  class="flex-1 bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs py-2.5 px-3 rounded-lg shadow">
+                  + Add &amp; Checkout
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== TAB 2: Add Stock (Books, Copies & Diary Inward) ====================
+    function renderAddStockInwardTab(container) {
+      const adminCanEdit = isAdminUser();
+      const sellerDatalistOpts = Array.from(new Set(booksCatalogList.map(b => b.sellerName).concat(bookInwardsList.map(i => i.sellerName)).filter(Boolean)))
+        .map(s => `<option value="${escapeHTML(s)}">`).join('');
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <!-- 1. Add New Book to Catalog & Assign Seller -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+            <div>
+              <h2 class="text-lg font-extrabold text-slate-900">+ Add New Book (With Seller &amp; Buying Price)</h2>
+              <p class="text-xs text-slate-600">Yahan naya book add karein. Seller Name (jaise Gyan Ganga) aur Buying Price dalne se profit auto-calculate hoga.</p>
+            </div>
+
+            ${adminCanEdit ? `
+            <form onsubmit="handleAddBookToCatalog(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end bg-slate-50 border border-slate-200 rounded-xl p-4">
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Class *</label>
+                <select id="newBookClass" class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold">
+                  ${SCHOOL_CLASSES.map(c => `<option value="${escapeHTML(c)}">${escapeHTML(c)}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Book Name *</label>
+                <input type="text" id="newBookName" placeholder="e.g. S. St. - Economics" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Publisher Name</label>
+                <input type="text" id="newBookPublisher" placeholder="e.g. NCERT / Oxford"
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-blue-900 mb-1">Seller / Wholesaler Name *</label>
+                <input type="text" id="newBookSeller" list="bookSellerDatalist" placeholder="e.g. Gyan Ganga Book Depot" required
+                  class="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-xs font-semibold" />
+                <datalist id="bookSellerDatalist">${sellerDatalistOpts}</datalist>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Quantity / Stock (Pcs) *</label>
+                <input type="number" id="newBookStock" min="0" value="25" required
+                  class="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-amber-800 mb-1">Buying Price / Pc (₹)</label>
+                <input type="number" id="newBookBuyPrice" min="0" value="0" placeholder="Baad mein bhi dal sakte hain"
+                  class="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-emerald-800 mb-1">Selling Price / Pc (₹) *</label>
+                <input type="number" id="newBookSellPrice" min="0" value="0" required
+                  class="w-full bg-white border border-emerald-400 rounded-lg px-3 py-2 text-xs font-bold" />
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-blue-900 hover:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-lg shadow">
+                  + Add Book &amp; Save Seller
+                </button>
+              </div>
+            </form>
+            ` : `<p class="text-xs text-rose-600">Admin login required to add books.</p>`}
+          </div>
+
+          <!-- 2. Stock Inward (For Notebooks, Diary & Bulk Books) -->
+          <div class="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-5 space-y-4 shadow-sm">
+            <div>
+              <h2 class="text-lg font-extrabold text-emerald-950">+ Add Bulk Stock Inward (Notebooks, Diary &amp; Reorders)</h2>
+              <p class="text-xs text-emerald-800">Jab wholesale market (jaise Gyan Ganga ya Kumar Book Depot) se naye notebooks, dairy ya books aayein.</p>
+            </div>
+
+            <form onsubmit="handleAddBookOrNotebookInward(event)" class="bg-white border border-emerald-200 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Purchase Date *</label>
+                ${renderDDMMDateField('bkInwardDate', getTodayDate(), '', true)}
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Seller / Book Depot Name *</label>
+                <input type="text" id="bkInwardSeller" list="bookSellerDatalist" placeholder="e.g. Gyan Ganga" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Select Item *</label>
+                <select id="bkInwardTarget" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold">
+                  <optgroup label="Notebooks &amp; School Diary">
+                    <option value="NB:Ruled">Notebook — Ruled</option>
+                    <option value="NB:Square">Notebook — Square</option>
+                    <option value="NB:FourLine">Notebook — 4-Line</option>
+                    <option value="NB:Plain">Notebook — Plain</option>
+                    <option value="NB:Diary">School Diary</option>
+                  </optgroup>
+                  <optgroup label="Class-Wise Books">
+                    ${booksCatalogList.map(b => `<option value="BK:${b.id}">${escapeHTML(b.studentClass)} — ${escapeHTML(b.bookName)} (${escapeHTML(b.sellerName || 'No Seller')})</option>`).join('')}
+                  </optgroup>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Quantity Received *</label>
+                <input type="number" id="bkInwardQty" min="1" value="50" required
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-amber-800 mb-1">Per Piece Buying Rate (₹)</label>
+                <input type="number" id="bkInwardUnitBuy" min="0" value="0" oninput="const q=Number(document.getElementById('bkInwardQty').value||0); const r=Number(this.value||0); if(r>0){document.getElementById('bkInwardBillAmt').value = q*r;}"
+                  class="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-blue-900 mb-1">Total Seller Bill Amount (₹)</label>
+                <input type="number" id="bkInwardBillAmt" min="0" value="0"
+                  class="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-emerald-800 mb-1">Paid to Seller Now (₹)</label>
+                <input type="number" id="bkInwardPaidAmt" min="0" value="0"
+                  class="w-full border border-emerald-400 rounded-lg px-3 py-2 text-sm font-bold" />
+              </div>
+              <div>
+                <button type="submit" class="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs sm:text-sm py-2.5 px-4 rounded-lg shadow">
+                  + Add Stock Inward
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== TAB 3: Class-Wise Books & Copy Matrix ====================
+    function renderBooksCatalogMatrixTab(container) {
+      const adminCanEdit = isAdminUser();
+      const selectedClass = activeBooksClassTab || 'STD. I';
+      const classBooks = booksCatalogList.filter(b => b.studentClass === selectedClass);
+      const nbRate = Number(notebookConfig.notebookRate || 40);
+
+      const classTabsHTML = SCHOOL_CLASSES.map(cls => {
+        const cnt = booksCatalogList.filter(b => b.studentClass === cls).length;
+        const isAct = cls === selectedClass;
+        return `
+          <button type="button" onclick="activeBooksClassTab = '${escapeHTML(cls)}'; renderContent();"
+            class="px-3 py-2 rounded-xl text-xs font-extrabold transition border ${isAct ? 'bg-blue-900 text-white border-blue-900 shadow-sm' : 'bg-white text-slate-700 border-slate-300 hover:bg-blue-50'}">
+            ${escapeHTML(cls)} <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${isAct ? 'bg-amber-400 text-slate-950' : 'bg-slate-200 text-slate-700'}">${cnt}</span>
+          </button>
+        `;
+      }).join('');
+
+      const bookRowsHTML = classBooks.length ? classBooks.map((b, idx) => {
+        const bm = getBookLiveMetrics(b.id);
+        const isLow = bm.opening > 0 && bm.available <= LOW_STOCK_THRESHOLD;
+        return `
+          <tr class="${isLow ? 'bg-rose-50/70' : 'hover:bg-slate-50'} border-b border-slate-200 text-xs sm:text-sm">
+            <td class="px-3 py-2.5 text-center text-slate-500">${idx + 1}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(b.bookName)}</td>
+            <td class="px-3 py-2.5 text-slate-700">${escapeHTML(b.publisher || '-')}</td>
+            <td class="px-3 py-2.5">
+              ${adminCanEdit ? `
+                <input type="text" value="${escapeHTML(b.sellerName || '')}" placeholder="e.g. Gyan Ganga"
+                  onchange="updateBookCatalogTextField('${b.id}', 'sellerName', this.value)"
+                  class="w-32 bg-blue-50/50 border border-blue-200 rounded px-2 py-1 text-xs font-semibold text-blue-950" />
+              ` : `<span class="font-semibold text-blue-900">${escapeHTML(b.sellerName || '-')}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center font-bold">${bm.opening}</td>
+            <td class="px-3 py-2.5 text-center font-semibold text-amber-700">${bm.sold}</td>
+            <td class="px-3 py-2.5 text-center font-extrabold ${bm.available <= LOW_STOCK_THRESHOLD ? 'text-rose-600' : 'text-emerald-700'}">${bm.available}</td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `
+                <input type="number" min="0" value="${bm.buyPrice}" onchange="updateBookCatalogField('${b.id}', 'buyPrice', this.value)"
+                  class="w-20 text-center border border-amber-300 bg-amber-50/40 rounded px-1.5 py-1 text-xs font-semibold" />
+              ` : `<span>${bm.buyPrice > 0 ? formatINR(bm.buyPrice) : 'Pending'}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `
+                <input type="number" min="0" value="${bm.sellPrice}" onchange="updateBookCatalogField('${b.id}', 'sellPrice', this.value)"
+                  class="w-20 text-center border border-blue-300 rounded px-1.5 py-1 text-xs font-bold text-blue-950" />
+              ` : `<span class="font-bold text-blue-950">${formatINR(bm.sellPrice)}</span>`}
+            </td>
+            <td class="px-3 py-2.5 text-center">
+              ${adminCanEdit ? `<button type="button" onclick="deleteBookFromCatalog('${b.id}')" class="text-xs text-rose-600 font-bold">&times;</button>` : ''}
+            </td>
+          </tr>
+        `;
+      }).join('') : `<tr><td colspan="10" class="py-6 text-center text-xs text-slate-500">Selected class mein koi book add nahi hai.</td></tr>`;
+
+      // Notebook Matrix Rows
+      const matrixRowsHTML = SCHOOL_CLASSES.map(cls => {
+        const c = getClassNotebookSummary(cls);
+        const isCurrent = cls === selectedClass;
+        return `
+          <tr class="${isCurrent ? 'bg-blue-50/80 font-semibold' : 'hover:bg-slate-50'} border-b border-slate-200 text-xs">
+            <td class="px-3 py-2 font-bold text-slate-900">${escapeHTML(cls)}</td>
+            <td class="px-2 py-2 text-center">${adminCanEdit ? `<input type="number" min="0" value="${c.ruled}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Ruled', this.value)" class="w-14 text-center border rounded py-0.5 text-xs" />` : c.ruled}</td>
+            <td class="px-2 py-2 text-center">${adminCanEdit ? `<input type="number" min="0" value="${c.square}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Square', this.value)" class="w-14 text-center border rounded py-0.5 text-xs" />` : c.square}</td>
+            <td class="px-2 py-2 text-center">${adminCanEdit ? `<input type="number" min="0" value="${c.fourLine}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'FourLine', this.value)" class="w-14 text-center border rounded py-0.5 text-xs" />` : c.fourLine}</td>
+            <td class="px-2 py-2 text-center">${adminCanEdit ? `<input type="number" min="0" value="${c.plain}" onchange="updateClassNotebookMatrix('${escapeHTML(cls)}', 'Plain', this.value)" class="w-14 text-center border rounded py-0.5 text-xs" />` : c.plain}</td>
+            <td class="px-3 py-2 text-center font-extrabold text-blue-950">${c.totalCopies}</td>
+            <td class="px-3 py-2 text-right font-bold text-emerald-700">${formatINR(c.nbAmount)}</td>
+            <td class="px-3 py-2 text-center font-semibold text-purple-800">${c.diary > 0 ? `${c.diary} (${formatINR(c.diaryAmount)})` : '-'}</td>
+          </tr>
+        `;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="space-y-8">
+          <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-extrabold text-slate-900">Class-Wise Books Catalog &amp; Seller Assignment</h2>
+                <p class="text-xs text-slate-600">Class chunein aur dekhein ki kaunsi book kis seller se kitne stock mein aayi hai.</p>
+              </div>
+              <span class="text-xs font-bold bg-blue-100 text-blue-950 px-3 py-1 rounded-full">${escapeHTML(selectedClass)}</span>
+            </div>
+
+            <div class="flex flex-wrap gap-1.5 bg-slate-50 p-3 rounded-xl border border-slate-200">
+              ${classTabsHTML}
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="min-w-full bg-white">
+                <thead class="bg-slate-800 text-white text-xs">
+                  <tr>
+                    <th class="px-3 py-2.5 text-center">#</th>
+                    <th class="px-3 py-2.5 text-left">Book Name</th>
+                    <th class="px-3 py-2.5 text-left">Publisher</th>
+                    <th class="px-3 py-2.5 text-left">Seller (e.g. Gyan Ganga)</th>
+                    <th class="px-3 py-2.5 text-center">Inward</th>
+                    <th class="px-3 py-2.5 text-center">Sold</th>
+                    <th class="px-3 py-2.5 text-center">Avail</th>
+                    <th class="px-3 py-2.5 text-center">Buy Price (₹)</th>
+                    <th class="px-3 py-2.5 text-center">Sell Price (₹)</th>
+                    <th class="px-3 py-2.5 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody>${bookRowsHTML}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Class-Wise Notebook Matrix -->
+          <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-3 shadow-sm">
+            <h2 class="text-lg font-extrabold text-slate-900">Class-Wise Notebook Matrix &amp; School Diary Chart</h2>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="min-w-full bg-white text-xs">
+                <thead class="bg-slate-900 text-white">
+                  <tr>
+                    <th class="px-3 py-2.5 text-left">Class</th>
+                    <th class="px-2 py-2.5 text-center">Ruled</th>
+                    <th class="px-2 py-2.5 text-center">Square</th>
+                    <th class="px-2 py-2.5 text-center">4-Line</th>
+                    <th class="px-2 py-2.5 text-center">Plain</th>
+                    <th class="px-3 py-2.5 text-center">Total Copies</th>
+                    <th class="px-3 py-2.5 text-right">Notebook Amt</th>
+                    <th class="px-3 py-2.5 text-center">School Diary</th>
+                  </tr>
+                </thead>
+                <tbody>${matrixRowsHTML}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== TAB 4: Seller Ledger & Profit Report ====================
+    function renderSellerLedgerProfitTab(container) {
+      let totalAcademicRevenue = 0;
+      let totalAcademicCost = 0;
+      let costPendingItemsCount = 0;
+
+      booksCatalogList.forEach(b => {
+        const bm = getBookLiveMetrics(b.id);
+        const bookSalesAmt = salesList
+          .filter(s => !s.isReturned && (s.bookId === b.id || (s.category === `Book: ${b.bookName}` && s.size === b.studentClass)))
+          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+        totalAcademicRevenue += bookSalesAmt;
+        totalAcademicCost += (bm.sold * bm.buyPrice);
+        if (bm.sold > 0 && bm.buyPrice <= 0) costPendingItemsCount++;
+      });
+
+      ['Ruled', 'Square', 'FourLine', 'Plain', 'Diary'].forEach(k => {
+        const st = getNotebookOrDiaryLiveMetrics(k);
+        const labelMap = { Ruled: 'Ruled', Square: 'Square', FourLine: '4-Line', Plain: 'Plain', Diary: 'Diary' };
+        const rev = salesList
+          .filter(s => !s.isReturned && (
+            (k === 'Diary' && s.category === 'School Diary') ||
+            (k !== 'Diary' && s.category === 'Notebook' && String(s.size) === labelMap[k])
+          ))
+          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+        totalAcademicRevenue += rev;
+        totalAcademicCost += (st.sold * st.buyRate);
+        if (st.sold > 0 && st.buyRate <= 0) costPendingItemsCount++;
+      });
+
+      const netAcademicProfit = totalAcademicRevenue - totalAcademicCost;
+
+      // Seller Khata aggregation
+      const sellerMap = {};
+      booksCatalogList.forEach(b => {
+        const seller = String(b.sellerName || '').trim();
+        if (!seller) return;
+        const bm = getBookLiveMetrics(b.id);
+        const inwardPcsForBook = bookInwardsList
+          .filter(inp => inp.targetVal === 'BK:' + b.id)
+          .reduce((s, inp) => s + Number(inp.pieces || 0), 0);
+        const initialCatalogQty = Math.max(0, bm.opening - inwardPcsForBook);
+
+        if (!sellerMap[seller]) {
+          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0, soldQty: 0, soldRevenue: 0, soldCost: 0 };
+        }
+        sellerMap[seller].totalQty += initialCatalogQty;
+        sellerMap[seller].totalBill += (initialCatalogQty * bm.buyPrice);
+
+        const bookRev = salesList
+          .filter(s => !s.isReturned && (s.bookId === b.id || (s.category === `Book: ${b.bookName}` && s.size === b.studentClass)))
+          .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+        sellerMap[seller].soldQty += bm.sold;
+        sellerMap[seller].soldRevenue += bookRev;
+        sellerMap[seller].soldCost += (bm.sold * bm.buyPrice);
+      });
+
+      bookInwardsList.forEach(inp => {
+        const seller = (inp.sellerName || 'General Book Seller').trim();
+        if (!sellerMap[seller]) {
+          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0, soldQty: 0, soldRevenue: 0, soldCost: 0 };
+        }
+        sellerMap[seller].totalQty += Number(inp.pieces || 0);
+        sellerMap[seller].totalBill += Number(inp.billAmount || 0);
+        sellerMap[seller].totalPaid += Number(inp.paidAmount || 0);
+      });
+      bookSellerPaymentsList.forEach(sp => {
+        const seller = (sp.sellerName || 'General Book Seller').trim();
+        if (!sellerMap[seller]) {
+          sellerMap[seller] = { seller, totalQty: 0, totalBill: 0, totalPaid: 0, soldQty: 0, soldRevenue: 0, soldCost: 0 };
+        }
+        sellerMap[seller].totalPaid += Number(sp.amount || 0);
+      });
+      const sellerList = Object.values(sellerMap);
+
+      const sellerRowsHTML = sellerList.length ? sellerList.map((sl, i) => {
+        const due = Math.max(0, sl.totalBill - sl.totalPaid);
+        const sellerProfit = (sl.soldRevenue || 0) - (sl.soldCost || 0);
+        return `
+          <tr class="hover:bg-slate-50 text-xs sm:text-sm">
+            <td class="px-3 py-2.5 text-center text-slate-500">${i + 1}</td>
+            <td class="px-3 py-2.5 font-bold text-slate-900">${escapeHTML(sl.seller)}</td>
+            <td class="px-3 py-2.5 text-center font-semibold">${sl.totalQty} Pcs</td>
+            <td class="px-3 py-2.5 text-right font-bold text-blue-950">${formatINR(sl.totalBill)}</td>
+            <td class="px-3 py-2.5 text-right font-semibold text-emerald-700">${formatINR(sl.totalPaid)}</td>
+            <td class="px-3 py-2.5 text-right font-extrabold ${due > 0 ? 'text-rose-600' : 'text-emerald-700'}">${formatINR(due)}</td>
+            <td class="px-3 py-2.5 text-center font-semibold text-amber-700">${sl.soldQty || 0}</td>
+            <td class="px-3 py-2.5 text-right font-extrabold ${sellerProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}">${formatINR(sellerProfit)}</td>
+            <td class="px-3 py-2.5 text-center">
+              <button type="button" onclick="recordBookSellerPaymentPrompt('${escapeHTML(sl.seller)}', ${due})"
+                class="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-2.5 py-1 rounded-lg">
+                + Pay Seller
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('') : `<tr><td colspan="9" class="py-6 text-center text-xs text-slate-500">Abhi tak kisi seller se book ya copies ki entry nahi hui hai.</td></tr>`;
+
+      container.innerHTML = `
+        <div class="space-y-6">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div class="bg-blue-950 text-white rounded-2xl p-4 shadow-sm">
+              <p class="text-[11px] font-bold uppercase text-blue-200">Total Academic Revenue</p>
+              <p class="text-2xl font-extrabold mt-1">${formatINR(totalAcademicRevenue)}</p>
+            </div>
+            <div class="bg-white border border-slate-200 rounded-2xl p-4">
+              <p class="text-[11px] font-bold uppercase text-slate-500">Total Buying Cost (Sold)</p>
+              <p class="text-2xl font-extrabold text-slate-900 mt-1">${formatINR(totalAcademicCost)}</p>
+              ${costPendingItemsCount > 0 ? `<p class="text-[10px] text-amber-700 font-bold mt-0.5">${costPendingItemsCount} item(s) ka buying price pending hai</p>` : ''}
+            </div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded-2xl p-4">
+              <p class="text-[11px] font-bold uppercase text-emerald-800">Net Academic Profit</p>
+              <p class="text-2xl font-extrabold text-emerald-700 mt-1">${formatINR(netAcademicProfit)}</p>
+            </div>
+          </div>
+
+          <div class="bg-white border border-slate-200 rounded-2xl p-5 space-y-4 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-lg font-extrabold text-slate-900">Seller Ledger &amp; Profit Report (Gyan Ganga, Kumar Depot, etc.)</h2>
+                <p class="text-xs text-slate-600">Kis seller se kitne books/copies liye gaye, kitna payment baaki hai, aur kis seller ke maal par kitna profit bana.</p>
+              </div>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="min-w-full bg-white">
+                <thead class="bg-slate-900 text-white text-xs">
+                  <tr>
+                    <th class="px-3 py-3 text-center">#</th>
+                    <th class="px-3 py-3 text-left">Seller Name</th>
+                    <th class="px-3 py-3 text-center">Total Books Taken</th>
+                    <th class="px-3 py-3 text-right">Purchase Value (₹)</th>
+                    <th class="px-3 py-3 text-right">Paid (₹)</th>
+                    <th class="px-3 py-3 text-right">Balance Due (₹)</th>
+                    <th class="px-3 py-3 text-center">Sold Qty</th>
+                    <th class="px-3 py-3 text-right">Net Profit (₹)</th>
+                    <th class="px-3 py-3 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-200">${sellerRowsHTML}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function handleAddBookToCatalog(e) {
+      e.preventDefault();
+      if (!isAdminUser()) return;
+      const studentClass = document.getElementById('newBookClass').value;
+      const bookName = document.getElementById('newBookName').value.trim();
+      const publisher = document.getElementById('newBookPublisher').value.trim();
+      const sellerName = document.getElementById('newBookSeller').value.trim();
+      const opening = Math.max(0, Number(document.getElementById('newBookStock').value) || 0);
+      const buyPrice = Math.max(0, Number(document.getElementById('newBookBuyPrice').value) || 0);
+      const sellPrice = Math.max(0, Number(document.getElementById('newBookSellPrice').value) || 0);
+
+      if (!bookName || !sellerName) return;
+
+      booksCatalogList.push({
+        id: 'BK-' + Date.now(),
+        studentClass,
+        bookName,
+        publisher,
+        sellerName,
+        opening,
+        buyPrice,
+        sellPrice
+      });
+
+      activeBooksClassTab = studentClass;
+      logStaffActivity('Book Added', `${studentClass}: ${bookName} (Seller: ${sellerName})`);
+      saveDataAndSync();
+      switchTab('BooksCatalogMatrix');
+      alert(`Book "${bookName}" (${sellerName}) successfully add ho gayi hai!`);
+    }
+
+    function updateBookCatalogField(bookId, field, rawVal) {
+      if (!isAdminUser()) return;
+      const b = booksCatalogList.find(x => x.id === bookId);
+      if (!b) return;
+      b[field] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateBookCatalogTextField(bookId, field, rawVal) {
+      if (!isAdminUser()) return;
+      const b = booksCatalogList.find(x => x.id === bookId);
+      if (!b) return;
+      b[field] = String(rawVal || '').trim();
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function deleteBookFromCatalog(bookId) {
+      if (!isAdminUser()) return;
+      if (!confirm('Kya aap is book ko catalog se delete karna chahte hain?')) return;
+      booksCatalogList = booksCatalogList.filter(x => x.id !== bookId);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function updateClassNotebookMatrix(cls, nbType, rawVal) {
+      if (!isAdminUser()) return;
+      if (!notebookConfig.classMatrix[cls]) {
+        notebookConfig.classMatrix[cls] = { Ruled: 0, Square: 0, FourLine: 0, Plain: 0, Diary: 1 };
+      }
+      notebookConfig.classMatrix[cls][nbType] = Math.max(0, Number(rawVal) || 0);
+      saveDataAndSync();
+      renderContent();
+    }
+
+    function recordBookSellerPaymentPrompt(sellerName, dueAmt) {
+      const amtStr = prompt(`Seller "${sellerName}" ka baaki due ${formatINR(dueAmt)} hai.\nAbhi kitna payment de rahe hain (₹)?`, String(dueAmt > 0 ? dueAmt : ''));
+      if (amtStr === null) return;
+      const amt = Math.max(0, Number(amtStr) || 0);
+      if (amt <= 0) return;
+
+      bookSellerPaymentsList.push({
+        id: 'BSP-' + Date.now(),
+        date: getTodayDate(),
+        sellerName,
+        amount: amt,
+        paidBy: currentSession ? currentSession.displayName : 'Admin'
+      });
+
+      logStaffActivity('Book Seller Payment', `Paid ₹${amt} to ${sellerName}`);
+      saveDataAndSync();
+      renderContent();
+      alert(`${sellerName} ko ${formatINR(amt)} ka payment record ho gaya!`);
+    }
+
     function handleAddBookOrNotebookInward(e) {
       e.preventDefault();
       const date = document.getElementById('bkInwardDate').value;
@@ -8020,6 +7954,7 @@ function doPost(e) {
         if (b) {
           b.opening = Number(b.opening || 0) + pieces;
           if (unitBuy > 0) b.buyPrice = unitBuy;
+          if (sellerName && !b.sellerName) b.sellerName = sellerName;
           itemLabel = `${b.studentClass} — ${b.bookName}`;
         }
       }
@@ -8039,39 +7974,9 @@ function doPost(e) {
 
       logStaffActivity('Book/Copy Inward', `+${pieces} ${itemLabel} from ${sellerName}, Bill ₹${billAmount}`);
       saveDataAndSync();
-      renderContent();
+      switchTab('SellerLedgerProfit');
       alert(`+${pieces} (${itemLabel}) stock aur Seller Khata mein save ho gaya!`);
     }
-
-    function updateBookInwardAmount(inwId, field, rawVal) {
-      if (!isAdminUser()) return;
-      const rec = bookInwardsList.find(x => x.id === inwId);
-      if (!rec) return;
-      rec[field] = Math.max(0, Number(rawVal) || 0);
-      saveDataAndSync();
-      renderContent();
-    }
-
-    function recordBookSellerPaymentPrompt(sellerName, dueAmt) {
-      const amtStr = prompt(`Seller "${sellerName}" ka baaki due ${formatINR(dueAmt)} hai.\nAbhi kitna payment de rahe hain (₹)?`, String(dueAmt > 0 ? dueAmt : ''));
-      if (amtStr === null) return;
-      const amt = Math.max(0, Number(amtStr) || 0);
-      if (amt <= 0) return;
-
-      bookSellerPaymentsList.push({
-        id: 'BSP-' + Date.now(),
-        date: getTodayDate(),
-        sellerName,
-        amount: amt,
-        paidBy: currentSession ? currentSession.displayName : 'Admin'
-      });
-
-      logStaffActivity('Book Seller Payment', `Paid ₹${amt} to ${sellerName}`);
-      saveDataAndSync();
-      renderContent();
-      alert(`${sellerName} ko ${formatINR(amt)} ka payment record ho gaya!`);
-    }
-
     // Start App
     checkAuthState();
   </script>
