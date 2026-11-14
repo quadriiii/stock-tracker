@@ -639,7 +639,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         }
 
         const categories = Object.keys(stockConfig);
-        const fixedValidTabs = ['QuickPOS', 'BooksStore', 'StockMatrix', 'StudentWallets', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
+        const fixedValidTabs = ['QuickPOS', 'BooksBilling', 'AddStockInward', 'BooksCatalogMatrix', 'SellerLedgerProfit', 'StockMatrix', 'StudentWallets', 'PreOrders', 'PendingDues', 'DailyClosing', 'StockInward', 'AddProduct', 'Summary', 'Receipt', 'SyncSetup'];
         if (!categories.includes(currentTab) && !fixedValidTabs.includes(currentTab)) {
           currentTab = 'QuickPOS';
         }
@@ -1665,8 +1665,13 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
       switch (tabId) {
         case 'QuickPOS':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>`;
-        case 'BooksStore':
+        case 'BooksBilling':
+        case 'BooksCatalogMatrix':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>`;
+        case 'AddStockInward':
+          return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+        case 'SellerLedgerProfit':
+          return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>`;
         case 'PreOrders':
           return `<svg class="${cls}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
         case 'StockInward':
@@ -1702,7 +1707,10 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
 
       const allNavItems = [
         { id: 'QuickPOS', label: 'Quick POS Billing', badge: 'MULTI-ITEM', badgeColor: 'bg-blue-100 text-blue-800', iconBg: 'bg-blue-100 text-blue-800' },
-        { id: 'BooksStore', label: 'Books, Notebooks & Diary Store', badge: 'NEW', badgeColor: 'bg-amber-100 text-amber-900', iconBg: 'bg-amber-100 text-amber-900' }
+        { id: 'BooksBilling', label: 'Billing (Books, Copies & Diary)', badge: 'POS', badgeColor: 'bg-amber-100 text-amber-900', iconBg: 'bg-amber-100 text-amber-900' },
+        { id: 'AddStockInward', label: 'Add Stock (Books, Copies & Diary)', badge: 'STOCK', badgeColor: 'bg-emerald-100 text-emerald-950', iconBg: 'bg-emerald-100 text-emerald-950' },
+        { id: 'BooksCatalogMatrix', label: 'Class-Wise Catalog & Matrix', iconBg: 'bg-blue-100 text-blue-900' },
+        { id: 'SellerLedgerProfit', label: 'Seller Ledger & Profit Report', badge: 'PROFIT', badgeColor: 'bg-purple-100 text-purple-900', iconBg: 'bg-purple-100 text-purple-900' }
       ];
 
       Object.keys(stockConfig).forEach(cat => {
@@ -1843,10 +1851,27 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
         return;
       }
 
-      if (currentTab === 'BooksStore') {
-        renderBooksStoreTab(container);
+      if (currentTab === 'BooksBilling') {
+        renderBooksBillingTab(container);
         return;
       }
+
+      if (currentTab === 'AddStockInward') {
+        renderAddStockInwardTab(container);
+        return;
+      }
+
+      if (currentTab === 'BooksCatalogMatrix') {
+        renderBooksCatalogMatrixTab(container);
+        return;
+      }
+
+      if (currentTab === 'SellerLedgerProfit') {
+        renderSellerLedgerProfitTab(container);
+        return;
+      }
+
+      
 
       if (currentTab === 'StockMatrix') {
         renderStockMatrixTab(container);
