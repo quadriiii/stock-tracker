@@ -5771,6 +5771,7 @@ Total Bill: ₹{netTotal} | Paid: ₹{paidAmount}
               ${escapeHTML(r.soldTo)}
             </button>
             ${r.studentClass ? `<span class="ml-1 inline-block bg-blue-100 text-blue-900 text-[10px] font-bold px-1.5 py-0.5 rounded no-underline">${escapeHTML(r.studentClass)}</span>` : ''}
+            ${r.invoiceGroupId ? `<span class="ml-1 inline-block bg-indigo-100 text-indigo-900 text-[9px] font-bold px-1.5 py-0.5 rounded no-underline" title="Combined Multi-Item Bill">Combined Bill</span>` : ''}
             ${isRet ? `<span class="ml-1 inline-block bg-rose-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded no-underline">RETURNED (Refunded ₹${r.refundedAmount || 0})</span>` : ''}
             ${r.customerPhone ? `<div class="text-[11px] text-blue-700">${escapeHTML(r.customerPhone)}</div>` : ''}
             ${r.customerMeta ? `<div class="text-[11px] text-slate-500">${escapeHTML(r.customerMeta)}</div>` : ''}
@@ -6468,7 +6469,12 @@ function doPost(e) {
 
       selectedReceiptSaleIds = selectedReceiptSaleIds.filter(id => salesList.some(s => s.id === id));
       if (selectedReceiptSaleIds.length === 0) {
-        selectedReceiptSaleIds = [salesList[salesList.length - 1].id];
+        const lastSale = salesList[salesList.length - 1];
+        if (lastSale && lastSale.invoiceGroupId) {
+          selectedReceiptSaleIds = salesList.filter(s => s.invoiceGroupId === lastSale.invoiceGroupId).map(s => s.id);
+        } else if (lastSale) {
+          selectedReceiptSaleIds = [lastSale.id];
+        }
       }
 
       const selectedSales = salesList.filter(s => selectedReceiptSaleIds.includes(s.id));
@@ -6485,28 +6491,59 @@ function doPost(e) {
       const grandDueAmount = selectedSales.reduce((sum, s) => sum + Number(s.dueAmount), 0);
       const amountInWords = numberToWordsINR(grandTotalAmount);
 
-      const salesCheckboxRows = salesList.slice().reverse().map(s => {
-        const isChecked = selectedReceiptSaleIds.includes(s.id);
-        const disc = Number(s.discount || 0);
-        const due = Number(s.dueAmount || 0);
-        const isRet = Boolean(s.isReturned);
+      // Group sales by invoiceGroupId so multi-item bills appear as 1 combined receipt card!
+      const groupedReceiptCards = [];
+      const seenReceiptGroups = new Set();
+      salesList.forEach((s, idx) => {
+        const gKey = s.invoiceGroupId || ('SINGLE_' + s.id);
+        if (seenReceiptGroups.has(gKey)) return;
+        seenReceiptGroups.add(gKey);
+        const members = s.invoiceGroupId
+          ? salesList.filter(x => x.invoiceGroupId === s.invoiceGroupId)
+          : [s];
+        const firstIdx = idx + 1;
+        const invCode = `INV-${s.date.replace(/-/g, '')}-${String(firstIdx).padStart(3, '0')}`;
+        groupedReceiptCards.push({
+          groupKey: gKey,
+          invCode,
+          primary: s,
+          members
+        });
+      });
+
+      const salesCheckboxRows = groupedReceiptCards.slice().reverse().map(grp => {
+        const memberIds = grp.members.map(m => m.id);
+        const isChecked = memberIds.every(id => selectedReceiptSaleIds.includes(id));
+        const grpNet = grp.members.reduce((sum, m) => sum + Number(m.amount || 0), 0);
+        const grpDue = grp.members.reduce((sum, m) => sum + Number(m.dueAmount || 0), 0);
+        const grpDisc = grp.members.reduce((sum, m) => sum + Number(m.discount || 0), 0);
+        const allReturned = grp.members.every(m => Boolean(m.isReturned));
+        const itemsSummary = grp.members.map(m => `${escapeHTML(m.category)} (${escapeHTML(m.size)}) × ${m.pieces}`).join(', ');
+        const idsCSV = memberIds.join(',');
+
         return `
-          <label class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${isRet ? 'bg-rose-50/70 border-rose-300 opacity-75' : (isChecked ? 'bg-blue-50 border-blue-400' : 'bg-white border-slate-200 hover:bg-slate-50')}">
-            <input type="checkbox" value="${s.id}" ${isChecked ? 'checked' : ''}
-              onchange="toggleReceiptSaleSelection('${s.id}')"
+          <div onclick="selectCombinedReceiptGroup('${idsCSV}')"
+            class="flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition ${allReturned ? 'bg-rose-50/70 border-rose-300 opacity-75' : (isChecked ? 'bg-blue-50 border-blue-500 ring-1 ring-blue-500' : 'bg-white border-slate-200 hover:bg-slate-50')}">
+            <input type="checkbox" ${isChecked ? 'checked' : ''}
+              onclick="event.stopPropagation(); toggleCombinedReceiptGroup('${idsCSV}');"
               class="mt-1 rounded text-blue-900 focus:ring-blue-800" />
             <div class="flex-1 text-xs">
-              <div class="flex justify-between font-bold text-slate-900">
-                <span>${escapeHTML(s.soldTo)} ${s.studentClass ? `(${escapeHTML(s.studentClass)})` : ''} ${isRet ? `<span class="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded ml-1">RETURNED</span>` : ''}</span>
-                <span class="text-blue-900">${formatINR(s.amount)}</span>
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-mono text-[10px] font-extrabold text-blue-900 bg-blue-100/80 px-1.5 py-0.5 rounded">${grp.invCode}</span>
+                <span class="font-extrabold text-blue-950">${formatINR(grpNet)}</span>
               </div>
-              <div class="text-slate-600 mt-0.5">
-                ${escapeHTML(s.category)} (Size ${escapeHTML(s.size)}) &times; ${s.pieces} Pcs &bull; ${formatDateReadable(s.date)}
-                ${disc > 0 ? `<span class="text-rose-600 font-semibold"> (Disc: -${formatINR(disc)})</span>` : ''}
-                ${due > 0 ? `<span class="text-rose-700 font-bold"> [Due: ${formatINR(due)}]</span>` : ''}
+              <div class="font-bold text-slate-900 mt-1">
+                ${escapeHTML(grp.primary.soldTo)} ${grp.primary.studentClass ? `<span class="text-[10px] font-bold text-slate-600">(${escapeHTML(grp.primary.studentClass)})</span>` : ''}
+                ${grp.members.length > 1 ? `<span class="ml-1 bg-amber-100 text-amber-900 text-[9px] font-extrabold px-1.5 py-0.5 rounded-full">${grp.members.length} Items Combined</span>` : ''}
+                ${allReturned ? `<span class="bg-rose-600 text-white text-[9px] px-1.5 py-0.5 rounded ml-1">RETURNED</span>` : ''}
+              </div>
+              <div class="text-slate-600 mt-0.5 leading-snug">
+                ${itemsSummary} &bull; ${formatDateReadable(grp.primary.date)}
+                ${grpDisc > 0 ? `<span class="text-rose-600 font-semibold"> (Disc: -${formatINR(grpDisc)})</span>` : ''}
+                ${grpDue > 0 ? `<span class="text-rose-700 font-bold"> [Due: ${formatINR(grpDue)}]</span>` : ''}
               </div>
             </div>
-          </label>
+          </div>
         `;
       }).join('');
 
@@ -6611,7 +6648,7 @@ function doPost(e) {
             <!-- 2. Select Sale Entries -->
             <div class="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-3">
               <div class="flex items-center justify-between">
-                <h3 class="text-sm font-bold text-slate-900">2. Select Sale Entries</h3>
+                <h3 class="text-sm font-bold text-slate-900">2. Select Bill / Receipt (${groupedReceiptCards.length} Bills)</h3>
                 <span class="text-xs font-semibold text-blue-900">${selectedSales.length} Selected</span>
               </div>
               <div class="max-h-52 overflow-y-auto space-y-2 pr-1">
@@ -6984,6 +7021,32 @@ function doPost(e) {
         : `https://wa.me/?text=${encodedMsg}`;
 
       window.open(waUrl, '_blank');
+    }
+
+    function selectCombinedReceiptGroup(idsCSV) {
+      const ids = String(idsCSV || '').split(',').filter(Boolean);
+      if (!ids.length) return;
+      selectedReceiptSaleIds = ids;
+      renderContent();
+    }
+
+    function toggleCombinedReceiptGroup(idsCSV) {
+      const ids = String(idsCSV || '').split(',').filter(Boolean);
+      if (!ids.length) return;
+      const allSelected = ids.every(id => selectedReceiptSaleIds.includes(id));
+      if (allSelected) {
+        const remaining = selectedReceiptSaleIds.filter(id => !ids.includes(id));
+        if (remaining.length === 0) {
+          alert('Kam se kam 1 bill select rehna chahiye.');
+          renderContent();
+          return;
+        }
+        selectedReceiptSaleIds = remaining;
+      } else {
+        const set = new Set([...selectedReceiptSaleIds, ...ids]);
+        selectedReceiptSaleIds = Array.from(set);
+      }
+      renderContent();
     }
 
     function toggleReceiptSaleSelection(saleId) {
